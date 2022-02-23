@@ -20,7 +20,7 @@
 
 # Convention
 ## Issue Template
-**Title** : Head - contents
+**Title** : [ Head ] contents
 
 **Body**  
 - Experiment  : 
