@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # pstage_01_image_classification
 
 ## Getting Started    
@@ -37,4 +36,3 @@ Progress
 Perforamnce : { train, test loss and metric }
 
 Explanation :
->>>>>>> 34f256eed097f1ad5961639339377ce7fe14f9a7
