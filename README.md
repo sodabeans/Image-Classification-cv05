@@ -1,6 +1,4 @@
-# pstage_01_image_classification
-
-## Getting Started    
+# Getting Started    
 ### Dependencies
 - torch==1.6.0
 - torchvision==0.7.0                                                              
@@ -17,26 +15,23 @@
 ### Evaluation
 - `SM_GROUND_TRUTH_DIR=[GT dir] SM_OUTPUT_DATA_DIR=[inference output dir] python evaluation.py`
 =======
-# level1-image-classification-level1-cv-05
-level1-image-classification-level1-cv-05 created by GitHub Classroom
 
 
 
+# Convention
 ## Issue Template
-
-Title : Head - contents
-
-Experiment  : 
-
-Content : 
+**Title** : Head - contents
+**Body**  
+|--Experiment  : 
+|--Content : 
 
 Progress
-- []
-- []
-- []
+- [] A
+- [] B
+- [] C
 
 ## Issue Comment
 
-Perforamnce : { train, test loss and metric }
+**Perforamnce** : { train, test loss and metric }
 
-Explanation :
+**Explanation** :
