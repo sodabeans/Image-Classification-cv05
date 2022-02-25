@@ -5,8 +5,7 @@ import torch.nn.functional as F
 
 # https://discuss.pytorch.org/t/is-this-a-correct-implementation-for-focal-loss-in-pytorch/43327/8
 class FocalLoss(nn.Module):
-    def __init__(self, weight=None,
-                 gamma=2., reduction='mean'):
+    def __init__(self, weight=None, gamma=2.0, reduction="mean"):
         nn.Module.__init__(self)
         self.weight = weight
         self.gamma = gamma
@@ -19,7 +18,7 @@ class FocalLoss(nn.Module):
             ((1 - prob) ** self.gamma) * log_prob,
             target_tensor,
             weight=self.weight,
-            reduction=self.reduction
+            reduction=self.reduction,
         )
 
 
@@ -42,11 +41,14 @@ class LabelSmoothingLoss(nn.Module):
 
 # https://gist.github.com/SuperShinyEyes/dcc68a08ff8b615442e3bc6a9b55a354
 class F1Loss(nn.Module):
-    def __init__(self, classes=3, epsilon=1e-7):
+    def __init__(self, classes=18, epsilon=1e-7):
         super().__init__()
         self.classes = classes
         self.epsilon = epsilon
+
     def forward(self, y_pred, y_true):
+        # print(y_pred.ndim)
+
         assert y_pred.ndim == 2
         assert y_true.ndim == 1
         y_true = F.one_hot(y_true, self.classes).to(torch.float32)
@@ -66,10 +68,10 @@ class F1Loss(nn.Module):
 
 
 _criterion_entrypoints = {
-    'cross_entropy': nn.CrossEntropyLoss,
-    'focal': FocalLoss,
-    'label_smoothing': LabelSmoothingLoss,
-    'f1': F1Loss
+    "cross_entropy": nn.CrossEntropyLoss,
+    "focal": FocalLoss,
+    "label_smoothing": LabelSmoothingLoss,
+    "f1": F1Loss,
 }
 
 
@@ -86,5 +88,5 @@ def create_criterion(criterion_name, **kwargs):
         create_fn = criterion_entrypoint(criterion_name)
         criterion = create_fn(**kwargs)
     else:
-        raise RuntimeError('Unknown loss (%s)' % criterion_name)
+        raise RuntimeError("Unknown loss (%s)" % criterion_name)
     return criterion

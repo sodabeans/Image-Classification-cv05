@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision.models as models
+import timm
 
 
 class BaseModel(nn.Module):
@@ -38,7 +40,6 @@ class BaseModel(nn.Module):
 class MyModel(nn.Module):
     def __init__(self, num_classes):
         super().__init__()
-
         """
         1. 위와 같이 생성자의 parameter 에 num_claases 를 포함해주세요.
         2. 나만의 모델 아키텍쳐를 디자인 해봅니다.
@@ -51,3 +52,64 @@ class MyModel(nn.Module):
         2. 결과로 나온 output 을 return 해주세요
         """
         return x
+
+
+class Res18Model(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.res18 = models.resnet18(pretrained=True)
+        self.res18.fc = nn.Sequential(
+            # nn.Linear(2048, 1024),
+            #  nn.Linear(1024, 256),
+            nn.Linear(512, num_classes)
+        )
+
+    def forward(self, x):
+        x = self.res18(x)
+        return x
+
+
+class Efficient_b4(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.eff_b4 = timm.create_model("tf_efficientnet_b4", pretrained=True)
+        self.eff_b4.classifier = nn.Sequential(
+            nn.Linear(1792, 512),
+            #  nn.Linear(1024, 256),
+            nn.Linear(512, num_classes),
+        )
+
+    def forward(self, x):
+        x = self.eff_b4(x)
+        return x
+
+
+# nf_regnet_b1
+
+
+class NFRegnet(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.nfr = timm.create_model("nf_regnet_b1", pretrained=True)
+        self.nfr.head.fc = nn.Sequential(
+            nn.Linear(960, 256),
+            #  nn.Linear(1024, 256),
+            nn.Linear(256, num_classes),
+        )
+
+    def forward(self, x):
+        x = self.nfr(x)
+        return x
+
+
+class InceptionV3Model(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.inception = models.inception_v3(pretrained=True)
+        self.inception.fc = nn.Sequential(
+            nn.Linear(2048, 1024), nn.Linear(1024, 256), nn.Linear(256, num_classes)
+        )
+
+    def forward(self, x):
+        x = self.inception(x)
+        return x[0]

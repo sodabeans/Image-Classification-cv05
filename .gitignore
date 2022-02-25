@@ -1,0 +1,7 @@
+model/
+.empty/
+output/
+__pycache__
+wandb/
+
+# https://cosmosproject.tistory.com/144
