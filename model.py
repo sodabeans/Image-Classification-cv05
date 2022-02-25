@@ -61,13 +61,19 @@ class SqueezeNet(nn.Module):
     def __init__(self, num_classes):
         super().__init__()
         self.SqueezeNet = models.squeezenet1_0(pretrained=True)
-        self.SqueezeNet.fc = nn.Linear(128, num_classes)
+        self.SqueezeNet.classifier = nn.Sequential(
+            nn.Dropout(p=0.7),
+            nn.Conv2d(512, num_classes, kernel_size=(1, 1), stride=(1, 1)),
+            nn.ReLU(inplace=True),
+            nn.AdaptiveAvgPool2d((1, 1))
+        )
+        self.SqueezeNet.num_classes = num_classes
 
     def forward(self, x):
         x = self.SqueezeNet(x)
         return x
 
-
+"""
 class EfficientNet(nn.Module):
     def __init__(self, num_classes):
         super().__init__()
@@ -77,8 +83,9 @@ class EfficientNet(nn.Module):
     def forward(self, x):
         x = self.EfficientNet(x)
         return x
+"""
 
-
+"""
 class LeNet(nn.Module):
     def __init__(self, num_classes):
         super().__init__()
@@ -90,7 +97,7 @@ class LeNet(nn.Module):
         self.bn2d2 = nn.BatchNorm2d(64, eps=1e-04, affine=False)
         self.conv3 = nn.Conv2d(64, 128, 5, bias=False, padding=2)
         self.bn2d3 = nn.BatchNorm2d(128, eps=1e-04, affine=False)
-        self.fc1 = nn.Linear(128 * 4 * 4, num_classes, bias=False)
+        self.fc1 = nn.Linear(128, num_classes, bias=False)
     
     def forward(self, x):
         x = self.conv1(x)
@@ -99,6 +106,9 @@ class LeNet(nn.Module):
         x = self.pool(F.leaky_relu(self.bn2d2(x)))
         x = self.conv3(x)
         x = self.pool(F.leaky_relu(self.bn2d3(x)))
+        # print(x.shape)
         x = x.view(x.size(0), -1)
+        # print(x.shape)
         x = self.fc1(x)
         return x
+"""

@@ -30,7 +30,7 @@ def inference(data_dir, model_dir, output_dir, args):
     """
     """
     use_cuda = torch.cuda.is_available()
-    if use_cuda: print("cuda") # SDB 
+    if use_cuda: print("cuda")
     device = torch.device("cuda" if use_cuda else "cpu")
 
     num_classes = MaskBaseDataset.num_classes  # 18
