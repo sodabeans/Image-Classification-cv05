@@ -15,7 +15,7 @@ class FocalLoss(nn.Module):
         self.reduction = reduction
 
     def forward(self, input_tensor, target_tensor):
-        log_prob = F.log_softmax(input_tensor, dim=-1)
+        log_prob = F.logsigmoid(input_tensor, dim=-1)  # log_softmax
         prob = torch.exp(log_prob)
         return F.nll_loss(
             ((1 - prob) ** self.gamma) * log_prob,
@@ -26,7 +26,7 @@ class FocalLoss(nn.Module):
 
 
 class LabelSmoothingLoss(nn.Module):
-    def __init__(self, classes=3, smoothing=0.0, dim=-1):
+    def __init__(self, classes=18, smoothing=0.0, dim=-1):
         super(LabelSmoothingLoss, self).__init__()
         self.confidence = 1.0 - smoothing
         self.smoothing = smoothing
@@ -34,7 +34,7 @@ class LabelSmoothingLoss(nn.Module):
         self.dim = dim
 
     def forward(self, pred, target):
-        pred = pred.log_softmax(dim=self.dim)
+        pred = pred.logsigmoid(dim=self.dim) # log_softmax
         with torch.no_grad():
             true_dist = torch.zeros_like(pred)
             true_dist.fill_(self.smoothing / (self.cls - 1))
@@ -57,7 +57,7 @@ class F1Loss(nn.Module):
         y_true = F.one_hot(y_true, self.classes).to(
             torch.float32
         )  # 여기서one hot으로 만들어서 하는구나.. 그럼 괜찮지..
-        y_pred = F.softmax(
+        y_pred = F.logsigmoid(   # softmax
             y_pred, dim=1
         )  # softmax를 loss전에 하도록 구성하기도 하는구나 그렇지 사실 model에 꼭 필요한건아니지 어디 넣어도 상관없을 듯
 

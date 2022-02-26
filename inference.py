@@ -79,8 +79,8 @@ if __name__ == "__main__":
         "--resize",
         type=int,
         nargs="+",
-        default=(384, 512),
-        help="resize size for image when you trained (default: (96, 128))",
+        default=(512, 384),
+        help="resize size for image when you trained (default: (512, 384))",
     )
     parser.add_argument(
         "--model",

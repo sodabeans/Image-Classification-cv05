@@ -82,6 +82,9 @@ class Efficient_b4(nn.Module):
             nn.Linear(512, num_classes),
         )
 
+    def target_layer(self):
+        return self.eff_b4.conv_head
+
     def forward(self, x):
         x = self.eff_b4(x)
         return x

@@ -32,10 +32,15 @@ def is_image_file(filename):
     return any(filename.endswith(extension) for extension in IMG_EXTENSIONS)
 
 
-class BaseAugmentation:
+class BaseTransform:
     def __init__(self, resize, mean, std, **args):
         self.transform = transforms.Compose(
-            [Resize(resize, Image.BILINEAR), ToTensor(), Normalize(mean=mean, std=std),]
+            [
+                # CenterCrop((400, 300)), # 이거 대신 cutmix
+                Resize(resize, Image.BILINEAR),
+                ToTensor(),
+                Normalize(mean=mean, std=std),
+            ]
         )
 
     def __call__(self, image):
@@ -71,13 +76,13 @@ class AddGaussianNoise(object):
 
 
 class CustomAugmentation:
-    def __init__(self, resize, mean, std, **args):
+    def __init__(self):  # resize, mean, std, **args):
         self.transform = transforms.Compose(
             [
                 # CenterCrop((320, 256)),
-                Resize(resize, Image.BILINEAR),
-                ToTensor(),
-                Normalize(mean=mean, std=std),
+                # Resize(resize, Image.BILINEAR),
+                # ToTensor(),
+                # Normalize(mean=mean, std=std),
                 RandomChoice(
                     [
                         ColorJitter(
@@ -91,11 +96,11 @@ class CustomAugmentation:
                             90
                         ),  # https://stackoverflow.com/questions/60205829/pytorch-transforms-randomrotation-does-not-work-on-google-colab
                         RandomAffine(degrees=(30, 70)),  #
-                        RandomPosterize(),
-                        RandomSolarize(),
+                        # RandomPosterize(2),
+                        RandomSolarize(192),
                         RandomHorizontalFlip(),
                         RandomVerticalFlip(),
-                        AddGaussianNoise(),
+                        # AddGaussianNoise(),
                     ]
                 )
                 # RandomApply(transforms=[RandomCrop(size=(64, 64))], p=0.5)
@@ -116,6 +121,46 @@ class CustomAugmentation:
 
     def __call__(self, image):
         return self.transform(image)
+
+
+class CutmixFace(object):  # 정답 설정도 필요할 듯. # 정답 설정도 뒤빠뀌어ㅑ함 저거에 맞게
+    def __init__(self, ratio):  # 0.8
+        self.ratio = ratio
+
+    def __call__(self, input, labels):
+        # print(input.shape)
+        W = input.size()[3]
+        H = input.size()[2]
+        cx = W // 2
+        cy = H // 2
+
+        newH = round(H * self.ratio)
+        newW = round(W * self.ratio)
+
+        # input = CenterCrop((newH, newW))(input)
+        # print(type(input))
+
+        # print(input.shape)
+        # print(input.size())
+        # print(input.size()[0])
+        rand_index = torch.randperm(input.size()[0])
+
+        bbx1, bby1, bbx2, bby2 = (
+            cx - (newW // 2),
+            cy - (newH // 2),
+            cx + (newW // 2),
+            cy + (newH // 2),
+        )
+        input[:, :, bby1:bby2, bbx1:bbx2] = input[rand_index, :, bby1:bby2, bbx1:bbx2]
+        labels = labels[rand_index]
+        # print(input.shape)
+
+        return input, labels
+
+        # return tensor + torch.randn(tensor.size()) * self.std + self.mean
+
+    def __repr__(self):
+        return "CutMix"
 
 
 class MaskLabels(int, Enum):
@@ -242,6 +287,9 @@ class MaskBaseDataset(Dataset):
     def set_transform(self, transform):
         self.transform = transform
 
+    # def set_augmentation(self, augmentation):
+    #     self.augmentation = augmentation
+
     def __getitem__(self, index):
         assert self.transform is not None, ".set_tranform 메소드를 이용하여 transform 을 주입해주세요"
 
@@ -252,6 +300,12 @@ class MaskBaseDataset(Dataset):
         multi_class_label = self.encode_multi_class(mask_label, gender_label, age_label)
 
         image_transform = self.transform(image)
+
+        # if (
+        #     multi_class_label not in [0, 1, 3, 4]
+        # ) and self.transform:  # check for minority class
+        #     image_transform = self.augmentation(image)
+        # image_transform = self.transform(image)
         return image_transform, multi_class_label
 
     def __len__(self):
@@ -376,7 +430,12 @@ class TestDataset(Dataset):
     ):
         self.img_paths = img_paths
         self.transform = transforms.Compose(
-            [Resize(resize, Image.BILINEAR), ToTensor(), Normalize(mean=mean, std=std),]
+            [
+                CenterCrop((400, 300)),
+                Resize(resize, Image.BILINEAR),
+                ToTensor(),
+                Normalize(mean=mean, std=std),
+            ]
         )
 
     def __getitem__(self, index):

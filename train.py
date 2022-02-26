@@ -1,4 +1,5 @@
 import argparse
+from cProfile import label
 import glob
 import json
 import multiprocessing
@@ -15,6 +16,7 @@ import torch
 from torch.optim.lr_scheduler import ReduceLROnPlateau, StepLR
 from torch.utils.data import DataLoader, WeightedRandomSampler
 from torchsampler import ImbalancedDatasetSampler
+from dataset import BaseTransform, CustomAugmentation, CutmixFace
 
 
 from torch.utils.tensorboard import SummaryWriter
@@ -141,20 +143,22 @@ def train(data_dir, model_dir, args):
     dataset = dataset_module(data_dir=data_dir,)
     num_classes = dataset.num_classes  # 18
 
+    # transform
+    transform = BaseTransform(resize=args.resize, mean=dataset.mean, std=dataset.std,)
+    dataset.set_transform(transform)
+
     # -- augmentation
-    transform_module = getattr(
+    augmentation_module = getattr(
         import_module("dataset"), args.augmentation
     )  # default: BaseAugmentation
-    # print(args.resize)
-    transform = transform_module(
-        resize=args.resize, mean=dataset.mean, std=dataset.std,
-    )
-    # 엇 아니네 여기가 진짜 transform이 일어나는 과정인 것 같은데,, 위에 써진 augmenatation내용이 여기꺼임.
-    dataset.set_transform(transform)
+    augmentation = augmentation_module()
+
+    # dataset.set_augmentation(augmentation)
 
     # data split
     train_set, val_set = dataset.split_dataset()  # 저 dataset내에 이게 있어서 쓸 수 있음.
 
+    # print(len(train_set))
     # -- sampler
     if args.sampler == "Weight":
         class_sample_counts = [
@@ -178,15 +182,17 @@ def train(data_dir, model_dir, args):
             109,
         ]
         weights = 1.0 / torch.tensor(class_sample_counts, dtype=torch.float)
-        samples_weights = [weights[t[1]] for t in train_set]
+        samples_weights = [t[1] for t in train_set]
         # https://discuss.pytorch.org/t/how-to-augment-the-minority-class-only-in-an-unbalanced-dataset/13797/3
+        # print(samples_weights)
+        # print(weights)
+        # print()
         sampler = WeightedRandomSampler(
             weights=samples_weights, num_samples=len(samples_weights), replacement=True
-        )
+        )  # 그러면 dataloader에서 어떤 샘플들을 뽑을 때 이 각 클래스 확률로 지정된 확률 내에서 뽑힌다는 거구만,
+        # 이거 쓰면 불균형 문제 해소에 도움이 되겠다.(각 배치당 불균형해소 될 듯!)
     elif args.sampler == "Imbalance":  # Imbalance sampler
         sampler = ImbalancedDatasetSampler(train_set)
-
-
 
     # -- data_loader
     train_loader = DataLoader(
@@ -222,6 +228,7 @@ def train(data_dir, model_dir, args):
     # -- loss & metric
     criterion = create_criterion(args.criterion)  # default: cross_entropy
     opt_module = getattr(import_module("torch.optim"), args.optimizer)  # default: SGD
+    # https://jonhyuk0922.tistory.com/162
     optimizer = opt_module(
         filter(lambda p: p.requires_grad, model.parameters()),
         lr=args.lr,
@@ -249,7 +256,7 @@ def train(data_dir, model_dir, args):
     best_val_loss = np.inf
 
     # early stopping
-    patience = 5
+    patience = 3
     counter = 0
 
     # print([list(model.children())[0]])
@@ -269,7 +276,19 @@ def train(data_dir, model_dir, args):
             inputs = inputs.to(device)
             labels = labels.to(device)
 
-            # print(labels)
+            # https://discuss.pytorch.org/t/how-to-augment-the-minority-class-only-in-an-unbalanced-dataset/13797/2
+            if np.random.random() > 0.5:
+                inputs, labels = CutmixFace(0.8)(inputs, labels)
+
+            # custom augmentation
+            aug_inputs = []
+            for input, label in zip(inputs, labels):
+                if label not in [0, 1, 3, 4]:
+                    aug_input = CustomAugmentation()(input)
+                    aug_inputs.append(aug_input)
+                else:
+                    aug_inputs.append(input)
+            inputs = torch.stack(aug_inputs)
 
             optimizer.zero_grad()
 
@@ -334,6 +353,21 @@ def train(data_dir, model_dir, args):
             inputs, labels = val_batch
             inputs = inputs.to(device)
             labels = labels.to(device)
+
+            if np.random.random() > 0.5:
+                inputs, labels = CutmixFace(0.8)(inputs, labels)
+
+            # custom augmentation
+            # https://discuss.pytorch.org/t/how-to-augment-the-minority-class-only-in-an-unbalanced-dataset/13797/2
+            aug_inputs = []
+            for input, label in zip(inputs, labels):
+                if label not in [0, 1, 3, 4]:
+                    aug_input = CustomAugmentation()(input)
+                    aug_inputs.append(aug_input)
+                else:
+                    aug_inputs.append(input)
+            inputs = torch.stack(aug_inputs)
+
             with torch.no_grad():
                 outs = model(inputs)
             preds = torch.argmax(outs, dim=-1)
@@ -358,14 +392,14 @@ def train(data_dir, model_dir, args):
             )
 
             # grad-cam
-            def gradcam(inputs,i,model):
+            def gradcam(inputs, i, model):
                 rgb_img = np.transpose(
-                np.float32(np.clip(inputs[i].cpu().numpy(), 0, 1)), (1, 2, 0)
-                )  
-                target_layers = [
-                    list(list(list(model.children())[0].children())[0].children())[-3] # 이 숫자만 바뀌면 되고, 이건 모델 종속적 colormap도 바꿀 수 있긴한데 굳이?>
-                ]
-                cam = GradCAM(model=model, target_layers=target_layers, use_cuda=use_cuda)
+                    np.float32(np.clip(inputs[i].cpu().numpy(), 0, 1)), (1, 2, 0)
+                )
+                target_layers = [model.module.target_layer()]
+                cam = GradCAM(
+                    model=model, target_layers=target_layers, use_cuda=use_cuda
+                )
                 # print(torch.unsqueeze(inputs[i], 0))
                 grayscale_cam = cam(input_tensor=torch.unsqueeze(inputs[i], 0))
                 grayscale_cam = grayscale_cam[0, :]
@@ -373,20 +407,22 @@ def train(data_dir, model_dir, args):
                     rgb_img, grayscale_cam, use_rgb=True, colormap=cv2.COLORMAP_JET
                 )
                 return visualization
-                
-            rgb_img = np.transpose(
-                np.float32(np.clip(inputs[i].cpu().numpy(), 0, 1)), (1, 2, 0)
-            )  
-            target_layers = [
-                list(list(list(model.children())[0].children())[0].children())[-3] # 이 숫자만 바뀌면 되고, 이건 모델 종속적 colormap도 바꿀 수 있긴한데 굳이?>
-            ] # 이걸 애초에 모델에서 지정해서 꺼낼 수 있게!
-            cam = GradCAM(model=model, target_layers=target_layers, use_cuda=use_cuda)
-            # print(torch.unsqueeze(inputs[i], 0))
-            grayscale_cam = cam(input_tensor=torch.unsqueeze(inputs[i], 0))
-            grayscale_cam = grayscale_cam[0, :]
-            visualization = show_cam_on_image(
-                rgb_img, grayscale_cam, use_rgb=True, colormap=cv2.COLORMAP_JET
-            )
+
+            visualization = gradcam(inputs, i, model)
+
+            # rgb_img = np.transpose(
+            #     np.float32(np.clip(inputs[i].cpu().numpy(), 0, 1)), (1, 2, 0)
+            # )
+            # target_layers = [
+            #     list(list(list(model.children())[0].children())[0].children())[-3] # 이 숫자만 바뀌면 되고, 이건 모델 종속적 colormap도 바꿀 수 있긴한데 굳이?>
+            # ] # 이걸 애초에 모델에서 지정해서 꺼낼 수 있게!
+            # cam = GradCAM(model=model, target_layers=target_layers, use_cuda=use_cuda)
+            # # print(torch.unsqueeze(inputs[i], 0))
+            # grayscale_cam = cam(input_tensor=torch.unsqueeze(inputs[i], 0))
+            # grayscale_cam = grayscale_cam[0, :]
+            # visualization = show_cam_on_image(
+            #     rgb_img, grayscale_cam, use_rgb=True, colormap=cv2.COLORMAP_JET
+            # )
             grad_cams.append(
                 wandb.Image(
                     visualization,
@@ -420,7 +456,8 @@ def train(data_dir, model_dir, args):
         #         model.module.state_dict(), f"{save_dir}/best.pth"
         #     )  # best 모델이 계속 업데이트될 듯
         #     best_val_acc = val_acc
-        if val_f1 > best_val_f1:
+
+        if val_f1 > best_val_f1:  # 여기서 일종의 treshold를 정해주자. 한 0.005정도는 넘어야 new로 업데이트하게
             print(
                 f"New best model for val f1-score : {val_f1:4.4}! saving the best model.."
             )
@@ -496,15 +533,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "--augmentation",
         type=str,
-        default="BaseAugmentation",
+        default="CustomAugmentation",
         help="data augmentation type (default: BaseAugmentation)",
     )
     parser.add_argument(
         "--resize",
         nargs="+",
         type=int,
-        default=[384, 512],
-        help="resize size for image when training",
+        default=[512, 384],
+        help="resize size for image when training (default : 512,384)",
     )
     parser.add_argument(
         "--batch_size",
