@@ -64,6 +64,9 @@ class Res18Model(nn.Module):
             nn.Linear(512, num_classes)
         )
 
+    def target_layer(self):
+        return self.res18.layer4
+
     def forward(self, x):
         x = self.res18(x)
         return x
@@ -99,6 +102,76 @@ class NFRegnet(nn.Module):
 
     def forward(self, x):
         x = self.nfr(x)
+        return x
+
+
+# deit_base_distilled_patch16_384
+class Deit(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.deit = timm.create_model(
+            "deit_base_distilled_patch16_384", pretrained=True
+        )
+        self.deit.head = nn.Sequential(
+            nn.Linear(768, 256),
+            #  nn.Linear(1024, 256),
+            nn.Linear(256, num_classes),
+        )
+        self.deit.head_dist = nn.Sequential(
+            nn.Linear(768, 256),
+            #  nn.Linear(1024, 256),
+            nn.Linear(256, num_classes),
+        )
+
+    def forward(self, x):
+        x = self.deit(x)
+        return torch.stack(list(x), dim=0)
+
+
+class VIT(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.vit = timm.create_model("vit_base_patch16_384", pretrained=True)
+        self.vit.head = nn.Sequential(
+            nn.Linear(768, 256),
+            #  nn.Linear(1024, 256),
+            nn.Linear(256, num_classes),
+        )
+
+    def forward(self, x):
+        x = self.vit(x)
+        return x
+
+
+# n tresnet_l
+class TResnet(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.tres = timm.create_model("tresnet_l", pretrained=True)
+        self.tres.head.fc = nn.Sequential(
+            nn.Linear(2432, 512),
+            #  nn.Linear(1024, 256),
+            nn.Linear(512, num_classes),
+        )
+
+    def forward(self, x):
+        x = self.tres(x)
+        return x
+
+
+# densenet121
+class Dense(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.dense = timm.create_model("densenet121", pretrained=True)
+        self.dense.classifier = nn.Sequential(
+            # nn.Linear(2432, 512),
+            nn.Linear(1024, 256),
+            nn.Linear(256, num_classes),
+        )
+
+    def forward(self, x):
+        x = self.dense(x)
         return x
 
 

@@ -39,7 +39,7 @@ def inference(data_dir, model_dir, output_dir, args):
     info = pd.read_csv(info_path)
 
     img_paths = [os.path.join(img_root, img_id) for img_id in info.ImageID]
-    print(args.resize)
+    # print(args.resize)
     dataset = TestDataset(img_paths, args.resize)
     loader = torch.utils.data.DataLoader(
         dataset,
@@ -60,7 +60,8 @@ def inference(data_dir, model_dir, output_dir, args):
             preds.extend(pred.cpu().numpy())
 
     info["ans"] = preds
-    info.to_csv(os.path.join(output_dir, f"output.csv"), index=False)
+    num = model_dir.split("/")[-1]
+    info.to_csv(os.path.join(output_dir, f"output_{num}.csv"), index=False)
     print(f"Inference Done!")
 
 

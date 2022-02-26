@@ -91,8 +91,8 @@ class CustomAugmentation:
                             90
                         ),  # https://stackoverflow.com/questions/60205829/pytorch-transforms-randomrotation-does-not-work-on-google-colab
                         RandomAffine(degrees=(30, 70)),  #
-                        # RandomPosterize(),
-                        # RandomSolarize(),
+                        RandomPosterize(),
+                        RandomSolarize(),
                         RandomHorizontalFlip(),
                         RandomVerticalFlip(),
                         AddGaussianNoise(),
