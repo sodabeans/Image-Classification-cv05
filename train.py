@@ -5,6 +5,9 @@ import multiprocessing
 import os
 import random
 import re
+import sys
+import wandb
+
 from importlib import import_module
 from pathlib import Path
 
@@ -15,7 +18,7 @@ from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-from dataset import MaskBaseDataset
+from dataset import MaskBaseDataset, MaskSplitByProfileDataset
 from loss import create_criterion
 
 
@@ -40,14 +43,13 @@ def grid_image(np_images, gts, preds, n=16, shuffle=False):
 
     choices = random.choices(range(batch_size), k=n) if shuffle else list(range(n))
     figure = plt.figure(figsize=(12, 18 + 2))  # cautions: hardcoded, 이미지 크기에 따라 figsize 를 조정해야 할 수 있습니다. T.T
-    plt.subplots_adjust(top=0.8)               # cautions: hardcoded, 이미지 크기에 따라 top 를 조정해야 할 수 있습니다. T.T
-    n_grid = np.ceil(n ** 0.5)
+    plt.subplots_adjust(top=0.8)  # cautions: hardcoded, 이미지 크기에 따라 top 를 조정해야 할 수 있습니다. T.T
+    n_grid = int(np.ceil(n ** 0.5))
     tasks = ["mask", "gender", "age"]
     for idx, choice in enumerate(choices):
         gt = gts[choice].item()
         pred = preds[choice].item()
         image = np_images[choice]
-        # title = f"gt: {gt}, pred: {pred}"
         gt_decoded_labels = MaskBaseDataset.decode_multi_class(gt)
         pred_decoded_labels = MaskBaseDataset.decode_multi_class(pred)
         title = "\n".join([
@@ -87,13 +89,17 @@ def train(data_dir, model_dir, args):
     seed_everything(args.seed)
 
     save_dir = increment_path(os.path.join(model_dir, args.name))
+    
+    l = len(os.listdir('./model'))
+    wandb.run.name = f'hyunhong_{l}'
+    wandb.run.save()
 
     # -- settings
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
 
     # -- dataset
-    dataset_module = getattr(import_module("dataset"), args.dataset)  # default: BaseAugmentation
+    dataset_module = getattr(import_module("dataset"), args.dataset)  # default: MaskSplitByProfileDataset
     dataset = dataset_module(
         data_dir=data_dir,
     )
@@ -114,7 +120,7 @@ def train(data_dir, model_dir, args):
     train_loader = DataLoader(
         train_set,
         batch_size=args.batch_size,
-        num_workers=multiprocessing.cpu_count()//2,
+        num_workers=0, #multiprocessing.cpu_count() // 2,
         shuffle=True,
         pin_memory=use_cuda,
         drop_last=True,
@@ -123,7 +129,7 @@ def train(data_dir, model_dir, args):
     val_loader = DataLoader(
         val_set,
         batch_size=args.valid_batch_size,
-        num_workers=multiprocessing.cpu_count()//2,
+        num_workers=0, #multiprocessing.cpu_count() // 2,
         shuffle=False,
         pin_memory=use_cuda,
         drop_last=True,
@@ -163,15 +169,21 @@ def train(data_dir, model_dir, args):
             inputs = inputs.to(device)
             labels = labels.to(device)
 
+
             optimizer.zero_grad()
 
             outs = model(inputs)
+            outs = outs[0]
             preds = torch.argmax(outs, dim=-1)
+            
+            #print(inputs.shape, outs.shape)
+            #print(labels.shape)
+            
             loss = criterion(outs, labels)
 
             loss.backward()
             optimizer.step()
-
+            
             loss_value += loss.item()
             matches += (preds == labels).sum().item()
             if (idx + 1) % args.log_interval == 0:
@@ -179,7 +191,7 @@ def train(data_dir, model_dir, args):
                 train_acc = matches / args.batch_size / args.log_interval
                 current_lr = get_lr(optimizer)
                 print(
-                    f"Epoch[{epoch}/{args.epochs}]({idx + 1}/{len(train_loader)}) || "
+                    f"Epoch[{epoch+1}/{args.epochs}]({idx + 1}/{len(train_loader)}) || "
                     f"training loss {train_loss:4.4} || training accuracy {train_acc:4.2%} || lr {current_lr}"
                 )
                 logger.add_scalar("Train/loss", train_loss, epoch * len(train_loader) + idx)
@@ -187,7 +199,7 @@ def train(data_dir, model_dir, args):
 
                 loss_value = 0
                 matches = 0
-
+        wandb.log({"loss": train_loss, "acc": train_acc})
         scheduler.step()
 
         # val loop
@@ -238,25 +250,46 @@ def train(data_dir, model_dir, args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
-    from dotenv import load_dotenv
-    import os
-    load_dotenv(verbose=True)
-
-    # Data and model checkpoints directories
+        #Data and model checkpoints directories
+    #random seed : 42가 일반적으로 쓰임
     parser.add_argument('--seed', type=int, default=42, help='random seed (default: 42)')
-    parser.add_argument('--epochs', type=int, default=1, help='number of epochs to train (default: 1)')
-    parser.add_argument('--dataset', type=str, default='MaskBaseDataset', help='dataset augmentation type (default: MaskBaseDataset)')
-    parser.add_argument('--augmentation', type=str, default='BaseAugmentation', help='data augmentation type (default: BaseAugmentation)')
-    parser.add_argument("--resize", nargs="+", type=list, default=[128, 96], help='resize size for image when training')
-    parser.add_argument('--batch_size', type=int, default=64, help='input batch size for training (default: 64)')
-    parser.add_argument('--valid_batch_size', type=int, default=1000, help='input batch size for validing (default: 1000)')
-    parser.add_argument('--model', type=str, default='BaseModel', help='model type (default: BaseModel)')
-    parser.add_argument('--optimizer', type=str, default='SGD', help='optimizer type (default: SGD)')
-    parser.add_argument('--lr', type=float, default=1e-3, help='learning rate (default: 1e-3)')
-    parser.add_argument('--val_ratio', type=float, default=0.2, help='ratio for validaton (default: 0.2)')
+    #dataset: dataset.py
+    parser.add_argument('--dataset', type=str, default='MaskSplitByProfileDataset', help='dataset augmentation type (default: MaskSplitByProfileDataset)')
+    
+    
+    epoch_num = 250
+    learning_rate = 1e-3
+    batch_size = 128
+
+
+    #epoch
+    parser.add_argument('--epochs', type=int, default=epoch_num, help='number of epochs to train (default: 1)')
+    #select model: model.py
+    parser.add_argument('--model', type=str, default='InceptionV3', help='model type (default: BaseModel)')
+    #augmentation: dataset.py
+    parser.add_argument('--augmentation', type=str, default='CustomAugmentation', help='data augmentation type (default: BaseAugmentation)')
+    #optimizer
+    parser.add_argument('--optimizer', type=str, default='Adam', help='optimizer type (default: SGD)')
+    #resize
+    parser.add_argument("--resize", nargs="+", type=list, default=(299, 299), help='resize size for image when training')
+    #loss function
     parser.add_argument('--criterion', type=str, default='cross_entropy', help='criterion type (default: cross_entropy)')
-    parser.add_argument('--lr_decay_step', type=int, default=20, help='learning rate scheduler deacy step (default: 20)')
+    
+    
+    #batch size
+    parser.add_argument('--batch_size', type=int, default=batch_size, help='input batch size for training (default: 64)')
+    #val batch size
+    parser.add_argument('--valid_batch_size', type=int, default=batch_size, help='input batch size for validing (default: 1000)')
+    #dataset train/val ratio
+    parser.add_argument('--val_ratio', type=float, default=0.2, help='ratio for validaton (default: 0.2)')
+
+    #learning rate
+    parser.add_argument('--lr', type=float, default=learning_rate, help='learning rate (default: 1e-3)')
+    #
+    parser.add_argument('--lr_decay_step', type=int, default=20, help='learning rate scheduler decay step (default: 20)')
+    #log interval
     parser.add_argument('--log_interval', type=int, default=20, help='how many batches to wait before logging training status')
+    #
     parser.add_argument('--name', default='exp', help='model save at {SM_MODEL_DIR}/{name}')
 
     # Container environment
@@ -268,5 +301,8 @@ if __name__ == '__main__':
 
     data_dir = args.data_dir
     model_dir = args.model_dir
+
+    wandb.init(project="hyunhong", entity="shine_light")
+    wandb.config = {"learning_rate": learning_rate,"epochs": epoch_num, "batch_size": batch_size }
 
     train(data_dir, model_dir, args)

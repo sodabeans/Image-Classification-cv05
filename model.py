@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import torchvision.models as models
 
 class BaseModel(nn.Module):
     def __init__(self, num_classes):
@@ -50,4 +50,41 @@ class MyModel(nn.Module):
         1. 위에서 정의한 모델 아키텍쳐를 forward propagation 을 진행해주세요
         2. 결과로 나온 output 을 return 해주세요
         """
+        return x
+
+
+class Resnet18(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.resnet18 = models.resnet18(pretrained=True)
+        self.resnet18.fc = nn.Sequential(
+            nn.Linear(512, num_classes)
+        )
+
+    def forward(self, x):
+        x = self.resnet18(x)
+        return x
+
+
+class Resnet34(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.resnet34 = models.resnet34(pretrained=True)
+        self.resnet34.fc = nn.Sequential(
+            nn.Linear(512, num_classes)
+        )
+
+    def forward(self, x):
+        x = self.resnet34(x)
+        return x
+
+
+class  InceptionV3(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.inceptionV3 = models.inception_v3(pretrained=True)
+        self.inceptionV3.fc = nn.Linear(2048, num_classes)
+
+    def forward(self, x):
+        x = self.inceptionV3(x)
         return x

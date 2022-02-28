@@ -8,7 +8,6 @@ import numpy as np
 import torch
 from PIL import Image
 from torch.utils.data import Dataset, Subset, random_split
-from torchvision import transforms
 from torchvision.transforms import *
 
 IMG_EXTENSIONS = [
@@ -23,7 +22,7 @@ def is_image_file(filename):
 
 class BaseAugmentation:
     def __init__(self, resize, mean, std, **args):
-        self.transform = transforms.Compose([
+        self.transform = Compose([
             Resize(resize, Image.BILINEAR),
             ToTensor(),
             Normalize(mean=mean, std=std),
@@ -52,13 +51,14 @@ class AddGaussianNoise(object):
 
 class CustomAugmentation:
     def __init__(self, resize, mean, std, **args):
-        self.transform = transforms.Compose([
-            CenterCrop((320, 256)),
+        self.transform = Compose([
+            CenterCrop((299, 299)),
             Resize(resize, Image.BILINEAR),
-            ColorJitter(0.1, 0.1, 0.1, 0.1),
+            RandomHorizontalFlip(p=0.5),
+            AutoAugment(AutoAugmentPolicy.SVHN),
             ToTensor(),
             Normalize(mean=mean, std=std),
-            AddGaussianNoise()
+            #AddGaussianNoise()
         ])
 
     def __call__(self, image):
@@ -253,7 +253,7 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
         length = len(profiles)
         n_val = int(length * val_ratio)
 
-        val_indices = set(random.choices(range(length), k=n_val))
+        val_indices = set(random.sample(range(length), k=n_val))
         train_indices = set(range(length)) - val_indices
         return {
             "train": train_indices,
@@ -297,7 +297,7 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
 class TestDataset(Dataset):
     def __init__(self, img_paths, resize, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246)):
         self.img_paths = img_paths
-        self.transform = transforms.Compose([
+        self.transform = Compose([
             Resize(resize, Image.BILINEAR),
             ToTensor(),
             Normalize(mean=mean, std=std),
