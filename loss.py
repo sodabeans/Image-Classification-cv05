@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.autograd import Variable
 
 import numpy as np
 from collections import Counter
@@ -15,7 +16,7 @@ class FocalLoss(nn.Module):
         self.reduction = reduction
 
     def forward(self, input_tensor, target_tensor):
-        log_prob = F.logsigmoid(input_tensor, dim=-1)  # log_softmax
+        log_prob = F.log_softmax(input_tensor, dim=-1)
         prob = torch.exp(log_prob)
         return F.nll_loss(
             ((1 - prob) ** self.gamma) * log_prob,
@@ -23,6 +24,128 @@ class FocalLoss(nn.Module):
             weight=self.weight,
             reduction=self.reduction,
         )
+
+
+# class FocalLoss2d(nn.Module):
+#     def __init__(self, gamma=2, alpha=0.25):
+#         super(FocalLoss2d, self).__init__()
+#         self.loss_fn = nn.BCEWithLogitsLoss()
+#         self.gamma = gamma
+#         self.alpha = alpha
+#         self.reduction = self.loss_fn.reduction  # mean, sum, etc..
+
+#     def forward(self, pred, true):
+#         bceloss = self.loss_fn(pred, true)
+
+#         pred_prob = torch.sigmoid(
+#             pred
+#         )  # p  pt는 p가 true 이면 pt = p / false 이면 pt = 1 - p
+#         alpha_factor = true * self.alpha + (1 - true) * (1 - self.alpha)  # add balance
+#         modulating_factor = torch.abs(true - pred_prob) ** self.gamma  # focal term
+#         loss = alpha_factor * modulating_factor * bceloss  # bceloss에 이미 음수가 들어가 있음
+
+#         if self.reduction == "mean":
+#             return loss.mean()
+
+#         elif self.reduction == "sum":
+#             return loss.sum()
+
+#         else:  # 'none'
+#             return loss
+
+
+# class FocalLoss2d(nn.Module):
+#     def __init__(self, gamma=2, alpha=0.25):
+#         super(FocalLoss2d, self).__init__()
+#         self._gamma = gamma
+#         self._alpha = alpha
+
+#     def forward(self, y_true, y_pred):
+#         cross_entropy_loss = torch.nn.BCELoss(y_true, y_pred)
+#         p_t = (y_true * y_pred) + ((1 - y_true) * (1 - y_pred))
+#         modulating_factor = 1.0
+#         if self._gamma:
+#             modulating_factor = torch.pow(1.0 - p_t, self._gamma)
+#         alpha_weight_factor = 1.0
+#         if self._alpha is not None:
+#             alpha_weight_factor = y_true * self._alpha + (1 - y_true) * (
+#                 1 - self._alpha
+#             )
+#         focal_cross_entropy_loss = (
+#             modulating_factor * alpha_weight_factor * cross_entropy_loss
+#         )
+#         return focal_cross_entropy_loss.mean()
+class FocalLoss2d(nn.Module):
+    def __init__(self, gamma=2):
+        # super(FocalLoss2d, self).__init__(weight, reduction)
+        nn.Module.__init__(self)
+        self.gamma = gamma
+
+    def forward(self, input, target):
+        # print(input.shape)
+        # print(target.shape)
+
+        # inputs and targets are assumed to be BatchxClasses
+        assert len(input.shape) == len(target.shape)
+        assert input.size(0) == target.size(0)
+        assert input.size(1) == target.size(1)
+
+        logit = input.reshape(-1)
+        target = target.reshape(-1)
+        prob = torch.sigmoid(logit)
+        prob = torch.where(target >= 0.5, prob, 1 - prob)
+        logp = -torch.log(torch.clamp(prob, 1e-4, 1 - 1e-4))
+        loss = logp * ((1 - prob) ** self.gamma)
+        loss = 8 * loss.mean()
+        return loss
+
+
+# def focal_binary_cross_entropy(logits, targets, gamma=2):
+#     l = logits.reshape(-1)
+#     t = targets.reshape(-1)
+#     p = torch.sigmoid(l)
+#     p = torch.where(t >= 0.5, p, 1 - p)
+#     logp = -torch.log(torch.clamp(p, 1e-4, 1 - 1e-4))
+#     loss = logp * ((1 - p) ** gamma)
+#     loss = num_label * loss.mean()
+#     return loss
+
+
+# class FocalLoss2d(nn.modules.loss._WeightedLoss):
+#     def __init__(
+#         self, gamma=2, weight=None, reduction="mean", balance_param=1,
+#     ):
+#         # super(FocalLoss2d, self).__init__(weight, reduction)
+#         nn.Module.__init__(self)
+#         self.gamma = gamma
+#         # self.weight = weight
+#         self.balance_param = balance_param
+#         self.reduction = reduction
+
+#     def forward(self, input, target):
+#         # print(input.shape)
+#         # print(target.shape)
+
+#         # inputs and targets are assumed to be BatchxClasses
+#         assert len(input.shape) == len(target.shape)
+#         assert input.size(0) == target.size(0)
+#         assert input.size(1) == target.size(1)
+
+#         # weight = Variable(self.weight)
+
+#         # compute the negative likelyhood
+#         logpt = -F.binary_cross_entropy_with_logits(
+#             input, target, reduction=self.reduction
+#         )
+#         pt = torch.exp(-logpt)
+
+#         # compute the loss
+#         focal_loss = ((1 - pt) ** self.gamma) * logpt
+#         balanced_focal_loss = self.balance_param * focal_loss
+#         return balanced_focal_loss
+
+
+# https://www.kaggle.com/c/tgs-salt-identification-challenge/discussion/65938
 
 
 class LabelSmoothingLoss(nn.Module):
@@ -34,7 +157,7 @@ class LabelSmoothingLoss(nn.Module):
         self.dim = dim
 
     def forward(self, pred, target):
-        pred = pred.logsigmoid(dim=self.dim) # log_softmax
+        pred = pred.logsigmoid()  # (dim=self.dim) # log_softmax
         with torch.no_grad():
             true_dist = torch.zeros_like(pred)
             true_dist.fill_(self.smoothing / (self.cls - 1))
@@ -57,8 +180,8 @@ class F1Loss(nn.Module):
         y_true = F.one_hot(y_true, self.classes).to(
             torch.float32
         )  # 여기서one hot으로 만들어서 하는구나.. 그럼 괜찮지..
-        y_pred = F.logsigmoid(   # softmax
-            y_pred, dim=1
+        y_pred = F.logsigmoid(  # softmax
+            y_pred  # , dim=1
         )  # softmax를 loss전에 하도록 구성하기도 하는구나 그렇지 사실 model에 꼭 필요한건아니지 어디 넣어도 상관없을 듯
 
         tp = (y_true * y_pred).sum(dim=0).to(torch.float32)
@@ -182,6 +305,7 @@ _criterion_entrypoints = {
     "label_smoothing": LabelSmoothingLoss,
     "f1": F1Loss,
     "LADE": LADELoss,
+    "focal_2": FocalLoss2d,
 }
 
 

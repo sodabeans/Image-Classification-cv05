@@ -11,7 +11,13 @@ from PIL import Image
 from torch.utils.data import Dataset, Subset, random_split
 from torchvision import transforms
 from torchvision.transforms import *
+import torch.nn.functional as F
+
+# import cv2
+
 import warnings
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
 
 
 IMG_EXTENSIONS = [
@@ -33,10 +39,12 @@ def is_image_file(filename):
 
 
 class BaseTransform:
-    def __init__(self, resize, mean, std, **args):
+    def __init__(self, resize, mean, std, cutmix, **args):
+        self.crop = CenterCrop((400, 300))
+        self.cutmix = cutmix
         self.transform = transforms.Compose(
             [
-                # CenterCrop((400, 300)), # 이거 대신 cutmix
+                # 이거 대신 cutmix
                 Resize(resize, Image.BILINEAR),
                 ToTensor(),
                 Normalize(mean=mean, std=std),
@@ -44,6 +52,8 @@ class BaseTransform:
         )
 
     def __call__(self, image):
+        if self.cutmix == "no":
+            image = self.crop(image)
         return self.transform(image)
 
 
@@ -66,61 +76,147 @@ class AddGaussianNoise(object):
         )
 
 
-# class RandomChoice(torch.nn.Module):
-#     def __init__(self):
-#         super().__init__()
-#         self.t = random.choice(self.transforms)
-
-#     def __call__(self, img):
-#         return self.t(img)
-
-
 class CustomAugmentation:
     def __init__(self):  # resize, mean, std, **args):
-        self.transform = transforms.Compose(
+        self.transform = A.Compose(
             [
-                # CenterCrop((320, 256)),
-                # Resize(resize, Image.BILINEAR),
-                # ToTensor(),
-                # Normalize(mean=mean, std=std),
-                RandomChoice(
+                # brightness, contrast, saturation을 무작위로 변경합니다.
+                # brightness, contrast, saturation을 무작위로 변경합니다.
+                A.ColorJitter(
+                    brightness=0.6, contrast=0.6, saturation=0.6, hue=0.6, p=0.4
+                ),
+                # transforms 중 하나를 선택해 적용합니다.
+                A.OneOf(
                     [
-                        ColorJitter(
-                            brightness=(0.2, 2),
-                            contrast=(0.3, 2),
-                            saturation=(0.2, 2),
-                            hue=(-0.3, 0.3),
-                        ),  # ColorJitter(0.1, 0.1, 0.1, 0.1),  # 이건 의미가 있을 것 같음.
-                        RandomPerspective(),
-                        RandomRotation(
-                            90
-                        ),  # https://stackoverflow.com/questions/60205829/pytorch-transforms-randomrotation-does-not-work-on-google-colab
-                        RandomAffine(degrees=(30, 70)),  #
-                        # RandomPosterize(2),
-                        RandomSolarize(192),
-                        RandomHorizontalFlip(),
-                        RandomVerticalFlip(),
-                        # AddGaussianNoise(),
-                    ]
-                )
-                # RandomApply(transforms=[RandomCrop(size=(64, 64))], p=0.5)
-                # ColorJitter(brightness=(0.2, 2),
-                #                contrast=(0.3, 2),
-                #                saturation=(0.2, 2),
-                #                hue=(-0.3, 0.3)),#ColorJitter(0.1, 0.1, 0.1, 0.1),  # 이건 의미가 있을 것 같음.
-                # RandomPerspective(),
-                # RandomRotation(),
-                # RandomAffine(),
-                # RandomPosterize(),
-                # RandomSolarize(),
-                # RandomHorizontalFlip(),
-                # RandomVerticalFlip()
-                # # AddGaussianNoise()
+                        # shift, scale, rotate 를 무작위로 적용합니다.
+                        A.ShiftScaleRotate(rotate_limit=20, p=0.5,),
+                        # affine 변환
+                        # A.IAAAffine(shear=15, p=0.5, mode="constant"),
+                    ],
+                    p=1.0,
+                ),
+                # 수평 뒤집기
+                A.HorizontalFlip(p=0.5),
+                # blur
+                A.Blur(p=0.1),
+                # Contrast Limited Adaptive Histogram Equalization 적용
+                A.CLAHE(p=0.1),
+                # 각 채널의 bit 감소
+                A.Posterize(p=0.1),
+                # grayscale로 변환
+                A.ToGray(p=0.1),
+                # 무작위로 channel을 섞기
+                A.ChannelShuffle(p=0.05),
+                # A.ColorJitter(
+                #     brightness=0.6, contrast=0.6, saturation=0.6, hue=0.6, p=0.4
+                # ),
+                # # transforms 중 하나를 선택해 적용합니다.
+                # A.OneOf(
+                #     [
+                #         # shift, scale, rotate 를 무작위로 적용합니다.
+                #         A.ShiftScaleRotate(rotate_limit=20, p=0.5),
+                #         # affine 변환
+                #         A.Affine(shear=15, p=0.5),
+                #         A.RandomRotate90(p=0.5),
+                #     ],
+                #     p=0.5,
+                # ),
+                # # 수평 뒤집기
+                # A.OneOf(
+                #     [
+                #         A.Blur(blur_limit=(30, 30), p=0.5),
+                #         # A.GaussianBlur(p=0.5),
+                #         # A.MotionBlur(p=0.5),
+                #         # A.OpticalDistortion(p=0.5),
+                #     ],
+                #     p=0.5,
+                # ),
+                # A.OneOf(
+                #     [
+                #         A.ToGray(p=0.1),
+                #         A.ChannelShuffle(p=0.1),
+                #         A.InvertImg(p=0.1),
+                #         A.Solarize(p=0.1),
+                #         A.Posterize(p=0.1),
+                #         A.CLAHE(p=0.1),
+                #     ],
+                #     p=0.5,
+                # ),
+                # A.OneOf(
+                #     [
+                #         A.GaussNoise(p=0.5),
+                #         A.MultiplicativeNoise(
+                #             multiplier=[0.5, 1.5],
+                #             elementwise=True,
+                #             per_channel=True,
+                #             p=0.5,
+                #         ),
+                #     ],
+                #     p=0.5,
+                # ),
+                # A.HorizontalFlip(p=0.5),
+                # A.VerticalFlip(p=0.5),
+                # A.RandomBrightnessContrast(brightness_limit=1, contrast_limit=1, p=0.5),
+                # A.RGBShift(r_shift_limit=15, g_shift_limit=15, b_shift_limit=15, p=0.5),
+                # # Contrast Limited Adaptive Histogram Equalization 적용
+                # # A.CLAHE(p=0.1),
+                # A.OneOf(
+                #     [
+                #         # A.CoarseDropout(
+                #         #     max_holes=8, max_height=20, max_width=20, p=0.5
+                #         # ),
+                #         A.ChannelDropout(p=0.5),
+                #         A.Cutout(
+                #             num_holes=50,
+                #             max_h_size=40,
+                #             max_w_size=40,
+                #             fill_value=128,
+                #             p=0.5,
+                #         ),
+                #     ],
+                #     p=0.5,
+                # ),
+                # A.JpegCompression(p=0.1),
+                ToTensorV2(),
             ]
         )
+        # transforms.Compose(
+        #     [
+        # CenterCrop((320, 256)),
+        # Resize(resize, Image.BILINEAR),
+        # ToTensor(),
+        # Normalize(mean=mean, std=std),
+
+        # RandomChoice(
+        #     [
+        #         # RandomBrightnessContrast(brightness_limit = (-0.1,0.1), contrast_limit=(-0.1,0.1),p=0.5),
+        #         ColorJitter(
+        #             brightness=(0.2, 2),
+        #             contrast=(0.3, 2),
+        #             saturation=(0.2, 2),
+        #             hue=(-0.3, 0.3),
+        #         ),  # ColorJitter(0.1, 0.1, 0.1, 0.1),  # 이건 의미가 있을 것 같음.
+        #         RandomPerspective(),
+        #         RandomRotation(
+        #             90
+        #         ),  # https://stackoverflow.com/questions/60205829/pytorch-transforms-randomrotation-does-not-work-on-google-colab
+        #         RandomAffine(degrees=(30, 70)),  #
+        #         # RandomPosterize(2),
+        #         RandomSolarize(192),
+        #         RandomHorizontalFlip(),
+        #         RandomVerticalFlip(),
+        #         # AddGaussianNoise(),
+        #             ]
+        #         )
+        #     ]
+        # )
+
+    # for train # https://github.com/albumentations-team/albumentations_examples
+    # https://www.facebook.com/groups/PyTorchKR/posts/1739555296184144/
 
     def __call__(self, image):
-        return self.transform(image)
+        augmentation = self.transform(image=image)
+        return augmentation["image"]
 
 
 class CutmixFace(object):  # 정답 설정도 필요할 듯. # 정답 설정도 뒤빠뀌어ㅑ함 저거에 맞게
@@ -208,6 +304,7 @@ class AgeLabels(int, Enum):
 
 class MaskBaseDataset(Dataset):
     num_classes = 3 * 2 * 3
+    num_labels = 3 + 2 + 3
 
     _file_names = {
         "mask1": MaskLabels.MASK,
@@ -227,6 +324,7 @@ class MaskBaseDataset(Dataset):
     def __init__(
         self,
         data_dir,
+        target_type,
         mean=(0.548, 0.504, 0.479),
         std=(0.237, 0.247, 0.246),
         val_ratio=0.2,
@@ -235,6 +333,7 @@ class MaskBaseDataset(Dataset):
         self.mean = mean
         self.std = std
         self.val_ratio = val_ratio
+        self.target_type = target_type
 
         self.transform = None
         self.setup()
@@ -301,11 +400,16 @@ class MaskBaseDataset(Dataset):
 
         image_transform = self.transform(image)
 
-        # if (
-        #     multi_class_label not in [0, 1, 3, 4]
-        # ) and self.transform:  # check for minority class
-        #     image_transform = self.augmentation(image)
-        # image_transform = self.transform(image)
+        if self.target_type == "multiclass":
+            multi_class_label = self.encode_multi_class(
+                mask_label, gender_label, age_label
+            )
+
+        elif self.target_type == "multilabel":
+            multi_class_label = self.encode_multi_label(
+                mask_label, gender_label, age_label
+            )  # class수가 8
+
         return image_transform, multi_class_label
 
     def __len__(self):
@@ -325,6 +429,13 @@ class MaskBaseDataset(Dataset):
         return Image.open(image_path)
 
     @staticmethod
+    def encode_multi_label(mask_label, gender_label, age_label) -> int:
+        mask_onehot = torch.eye(3)[mask_label]
+        gender_onehot = torch.eye(2)[gender_label]
+        age_onehot = torch.eye(3)[age_label]
+        return torch.cat((mask_onehot, gender_onehot, age_onehot))
+
+    @staticmethod
     def encode_multi_class(mask_label, gender_label, age_label) -> int:
         return mask_label * 6 + gender_label * 3 + age_label
 
@@ -336,6 +447,17 @@ class MaskBaseDataset(Dataset):
         gender_label = (multi_class_label // 3) % 2
         age_label = multi_class_label % 3
         return mask_label, gender_label, age_label
+
+    # @staticmethod
+    # def decode_multi_class(multi_class_label):
+    #     mask_label = multi_class_label[:3]
+    #     gender_label = multi_class_label[3:5]
+    #     age_label = multi_class_label[5:]
+    #     return (
+    #         torch.argmax(mask_label) * 6
+    #         + torch.argmax(gender_label) * 3
+    #         + torch.argmax(age_label) * 1
+    #     )
 
     @staticmethod
     def denormalize_image(image, mean, std):
@@ -370,12 +492,13 @@ class MaskSplitByProfileDataset(MaskBaseDataset):
     def __init__(
         self,
         data_dir,
+        target_type,
         mean=(0.548, 0.504, 0.479),
         std=(0.237, 0.247, 0.246),
         val_ratio=0.2,
     ):
         self.indices = defaultdict(list)
-        super().__init__(data_dir, mean, std, val_ratio)
+        super().__init__(data_dir, target_type, mean, std, val_ratio)
 
     @staticmethod
     def _split_profile(profiles, val_ratio):

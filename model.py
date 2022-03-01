@@ -72,15 +72,15 @@ class Res18Model(nn.Module):
         return x
 
 
-class Efficient_b4(nn.Module):
+class Efficient(nn.Module):
     def __init__(self, num_classes):
         super().__init__()
-        self.eff_b4 = timm.create_model("tf_efficientnet_b4", pretrained=True)
-        self.eff_b4.classifier = nn.Sequential(
-            nn.Linear(1792, 512),
-            #  nn.Linear(1024, 256),
-            nn.Linear(512, num_classes),
-        )
+        self.eff_b4 = timm.create_model(
+            "tf_efficientnet_b4",
+            pretrained=True,
+            num_classes=num_classes,
+            drop_rate=0.7,
+        )  # tf_efficientnet_b4
 
     def target_layer(self):
         return self.eff_b4.conv_head
@@ -131,6 +131,20 @@ class Deit(nn.Module):
         return torch.stack(list(x), dim=0)
 
 
+class Swin(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.swin = timm.create_model("swin_base_patch4_window7_224", pretrained=True)
+        self.swin.head = nn.Linear(1024, num_classes)
+
+    def target_layer(self):
+        return self.swin.avgpool
+
+    def forward(self, x):
+        x = self.swin(x)
+        return x
+
+
 class VIT(nn.Module):
     def __init__(self, num_classes):
         super().__init__()
@@ -147,45 +161,45 @@ class VIT(nn.Module):
 
 
 # n tresnet_l
-class TResnet(nn.Module):
-    def __init__(self, num_classes):
-        super().__init__()
-        self.tres = timm.create_model("tresnet_l", pretrained=True)
-        self.tres.head.fc = nn.Sequential(
-            nn.Linear(2432, 512),
-            #  nn.Linear(1024, 256),
-            nn.Linear(512, num_classes),
-        )
+# class TResnet(nn.Module):
+#     def __init__(self, num_classes):
+#         super().__init__()
+#         self.tres = timm.create_model("tresnet_l", pretrained=True)
+#         self.tres.head.fc = nn.Sequential(
+#             nn.Linear(2432, 512),
+#             #  nn.Linear(1024, 256),
+#             nn.Linear(512, num_classes),
+#         )
 
-    def forward(self, x):
-        x = self.tres(x)
-        return x
-
-
-# densenet121
-class Dense(nn.Module):
-    def __init__(self, num_classes):
-        super().__init__()
-        self.dense = timm.create_model("densenet121", pretrained=True)
-        self.dense.classifier = nn.Sequential(
-            # nn.Linear(2432, 512),
-            nn.Linear(1024, 256),
-            nn.Linear(256, num_classes),
-        )
-
-    def forward(self, x):
-        x = self.dense(x)
-        return x
+#     def forward(self, x):
+#         x = self.tres(x)
+#         return x
 
 
-class InceptionV3Model(nn.Module):
-    def __init__(self, num_classes):
-        super().__init__()
-        self.inception = models.inception_v3(pretrained=True)
-        self.inception.fc = nn.Sequential(
-            nn.Linear(2048, 1024), nn.Linear(1024, 256), nn.Linear(256, num_classes)
-        )
+# # densenet121
+# class Dense(nn.Module):
+#     def __init__(self, num_classes):
+#         super().__init__()
+#         self.dense = timm.create_model("densenet121", pretrained=True)
+#         self.dense.classifier = nn.Sequential(
+#             # nn.Linear(2432, 512),
+#             nn.Linear(1024, 256),
+#             nn.Linear(256, num_classes),
+#         )
 
-    def forward(self, x):
-        x = self.inception(x)
-        return x[0]
+#     def forward(self, x):
+#         x = self.dense(x)
+#         return x
+
+
+# class InceptionV3Model(nn.Module):
+#     def __init__(self, num_classes):
+#         super().__init__()
+#         self.inception = models.inception_v3(pretrained=True)
+#         self.inception.fc = nn.Sequential(
+#             nn.Linear(2048, 1024), nn.Linear(1024, 256), nn.Linear(256, num_classes)
+#         )
+
+#     def forward(self, x):
+#         x = self.inception(x)
+#         return x[0]

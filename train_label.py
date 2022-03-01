@@ -36,8 +36,7 @@ from pytorch_grad_cam.utils.image import show_cam_on_image
 
 from dataset import MaskBaseDataset
 from loss import create_criterion
-from sklearn.metrics import f1_score
-from sklearn.model_selection import StratifiedKFold
+from sklearn.metrics import f1_score, accuracy_score
 
 
 def seed_everything(seed):
@@ -113,32 +112,18 @@ def increment_path(path, exist_ok=False):
         return f"{path}{n}"
 
 
-def getDataloader(dataset, train_idx, valid_idx, batch_size, num_workers, sampler=None):
-    # 인자로 전달받은 dataset에서 train_idx에 해당하는 Subset 추출
-    train_set = torch.utils.data.Subset(dataset, indices=train_idx)
-    # 인자로 전달받은 dataset에서 valid_idx에 해당하는 Subset 추출
-    val_set = torch.utils.data.Subset(dataset, indices=valid_idx)
-
-    # 추출된 Train Subset으로 DataLoader 생성
-    train_loader = torch.utils.data.DataLoader(
-        train_set,
-        batch_size=batch_size,
-        num_workers=num_workers,
-        sampler=sampler,
-        drop_last=True,
-        shuffle=False,
+def decode_multi_label(multi_class_label):
+    # print(multi_class_label)
+    multi_class_label = multi_class_label.to(torch.int16)
+    mask_label = multi_class_label[:3]
+    # print(mask_label)
+    gender_label = multi_class_label[3:5]
+    age_label = multi_class_label[5:]
+    return (
+        torch.argmax(mask_label) * 6
+        + torch.argmax(gender_label) * 3
+        + torch.argmax(age_label) * 1
     )
-    # 추출된 Valid Subset으로 DataLoader 생성
-    val_loader = torch.utils.data.DataLoader(
-        val_set,
-        batch_size=batch_size,
-        num_workers=num_workers,
-        drop_last=True,
-        shuffle=False,
-    )
-
-    # 생성한 DataLoader 반환
-    return train_loader, val_loader
 
 
 # 결국은 model을 저장해주는 path를 만들기 위한 코드임
@@ -170,7 +155,7 @@ def train(data_dir, model_dir, args):
         args.dataset,  # iomport module로 현재 디렉토리의 dataset모듈을 불러오는거 ㅇㅇ 거기의 BaseAugmenation을 가져오는거
     )  # default: MaskBaseDataset
     dataset = dataset_module(data_dir=data_dir, target_type=args.target_type,)
-    num_classes = dataset.num_classes  # 18
+    num_classes = dataset.num_labels  # 18
 
     # transform
     transform = BaseTransform(
@@ -192,47 +177,47 @@ def train(data_dir, model_dir, args):
 
     # print(len(train_set))
     # -- sampler
-    if args.sampler == "Weight":
-        class_sample_counts = [
-            2745,
-            2050,
-            415,
-            3660,
-            4085,
-            545,
-            549,
-            410,
-            83,
-            732,
-            817,
-            109,
-            549,
-            410,
-            83,
-            732,
-            817,
-            109,
-        ]
-        weights = 1.0 / torch.tensor(class_sample_counts, dtype=torch.float)
-        samples_weights = [weights[t[1]] for t in train_set]
-        # https://discuss.pytorch.org/t/how-to-augment-the-minority-class-only-in-an-unbalanced-dataset/13797/3
-        # print(samples_weights)
-        # print(weights)
-        # print()
-        sampler = WeightedRandomSampler(
-            weights=samples_weights, num_samples=len(samples_weights), replacement=True
-        )  # 그러면 dataloader에서 어떤 샘플들을 뽑을 때 이 각 클래스 확률로 지정된 확률 내에서 뽑힌다는 거구만,
-        # 이거 쓰면 불균형 문제 해소에 도움이 되겠다.(각 배치당 불균형해소 될 듯!)
-    elif args.sampler == "Imbalance":  # Imbalance sampler
-        sampler = ImbalancedDatasetSampler(train_set)
+    # if args.sampler == "Weight":
+    #     class_sample_counts = [
+    #         2745,
+    #         2050,
+    #         415,
+    #         3660,
+    #         4085,
+    #         545,
+    #         549,
+    #         410,
+    #         83,
+    #         732,
+    #         817,
+    #         109,
+    #         549,
+    #         410,
+    #         83,
+    #         732,
+    #         817,
+    #         109,
+    #     ]
+    #     weights = 1.0 / torch.tensor(class_sample_counts, dtype=torch.float)
+    #     samples_weights = [weights[t[1]] for t in train_set]
+    #     # https://discuss.pytorch.org/t/how-to-augment-the-minority-class-only-in-an-unbalanced-dataset/13797/3
+    #     # print(samples_weights)
+    #     # print(weights)
+    #     # print()
+    #     sampler = WeightedRandomSampler(
+    #         weights=samples_weights, num_samples=len(samples_weights), replacement=True
+    #     )  # 그러면 dataloader에서 어떤 샘플들을 뽑을 때 이 각 클래스 확률로 지정된 확률 내에서 뽑힌다는 거구만,
+    #     # 이거 쓰면 불균형 문제 해소에 도움이 되겠다.(각 배치당 불균형해소 될 듯!)
+    # elif args.sampler == "Imbalance":  # Imbalance sampler
+    #     sampler = ImbalancedDatasetSampler(train_set)
 
     # -- data_loader
     train_loader = DataLoader(
         train_set,
         batch_size=args.batch_size,
-        sampler=sampler,
+        # sampler=sampler,
         # num_workers=multiprocessing.cpu_count() // 2,
-        # shuffle=True,  # https://stackoverflow.com/questions/61033726/valueerror-sampler-option-is-mutually-exclusive-with-shuffle-pytorch
+        shuffle=True,  # https://stackoverflow.com/questions/61033726/valueerror-sampler-option-is-mutually-exclusive-with-shuffle-pytorch
         # pin_memory=use_cuda,
         drop_last=True,
     )  # dataset클래스니까, 이걸 이렇게 loader로 만들어줄 수 있음.
@@ -264,7 +249,7 @@ def train(data_dir, model_dir, args):
     optimizer = opt_module(
         filter(lambda p: p.requires_grad, model.parameters()),
         lr=args.lr,
-        weight_decay=1e-5,
+        weight_decay=5e-4,
     )
     scheduler = ReduceLROnPlateau(
         optimizer,
@@ -281,16 +266,16 @@ def train(data_dir, model_dir, args):
     with open(os.path.join(save_dir, "config.json"), "w", encoding="utf-8") as f:
         json.dump(
             vars(args), f, ensure_ascii=False, indent=4
-        )  # 특정 json파일에 이러한 config를 적어준다.
+        )  # 특정 gson파일에 이러한 config를 적어준다.
 
     best_val_acc = 0
     best_val_f1 = 0
     best_val_loss = np.inf
+
     # early stopping
     patience = 4
     counter = 0
-    example_imgaes = []
-    grad_cams = []
+
     for epoch in range(args.epochs):
         # train loop
         epoch += 1
@@ -298,49 +283,78 @@ def train(data_dir, model_dir, args):
         loss_value = 0
         matches = 0
         f1 = 0
+        acc = 0
         gc.collect()
         torch.cuda.empty_cache()
         for idx, train_batch in enumerate(train_loader):
             inputs, labels = train_batch
             inputs = inputs.to(device)
             labels = labels.to(device)
-            # print(labels)
+
             # https://discuss.pytorch.org/t/how-to-augment-the-minority-class-only-in-an-unbalanced-dataset/13797/2
             if np.random.random() > 0.5 and args.cutmix == "yes":
                 inputs, labels = CutmixFace(0.8)(inputs, labels)
+
             # custom augmentation
+            # not_list = [
+            #     torch.Tensor([1, 0, 0, 1, 0, 1, 0, 0]).to(device),
+            #     torch.Tensor([1, 0, 0, 1, 0, 0, 1, 0]).to(device),
+            #     torch.Tensor([1, 0, 0, 0, 1, 1, 0, 0]).to(device),
+            #     torch.Tensor([1, 0, 0, 0, 1, 0, 1, 0]).to(device),
+            # ]
+            not_list = [
+                [1, 0, 0, 1, 0, 1, 0, 0],
+                [1, 0, 0, 1, 0, 0, 1, 0],
+                [1, 0, 0, 0, 1, 1, 0, 0],
+                [1, 0, 0, 0, 1, 0, 1, 0],
+            ]
             if args.augmentation == "CustomAugmentation":
                 aug_inputs = []
                 for input, label in zip(inputs, labels):
-                    if label not in [0, 1, 3, 4]:
+                    if (
+                        list(label.cpu().detach().numpy()) not in not_list
+                    ):  # https://velog.io/@xdfc1745/Bool-value-of-Tensor-with-more-than-one-value-is-ambiguous-in-Pytorch
                         aug_input = augmentation(input)
                         aug_inputs.append(aug_input)
                     else:
                         aug_inputs.append(input)
                 inputs = torch.stack(aug_inputs)
+
             optimizer.zero_grad()
+
             outs = model(inputs)
-            preds = torch.argmax(outs, dim=-1)
+            preds = torch.sigmoid(outs).data > 0.5
             loss = criterion(outs, labels)
+            #################################################################################################
+
+            #################################################################################################
+
             loss.backward()
+
+            # print(preds)
             # # gradient clipping
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5)
+
             optimizer.step()
+
             loss_value += loss.item()
-            matches += (preds == labels).sum().item()
-            pred_f1 = torch.clone(preds).detach().cpu().numpy()
-            label_f1 = torch.clone(labels).detach().cpu().numpy()
+            # matches += (preds == labels).sum().item()
+            pred_metric = torch.clone(preds).detach().cpu().numpy()
+            label_metric = torch.clone(labels).detach().cpu().numpy()
             # print(f1_score(label_f1, pred_f1, average="macro"))
-            f1 += f1_score(label_f1, pred_f1, average="macro")
+            acc += accuracy_score(label_metric, pred_metric)
+            f1 += f1_score(label_metric, pred_metric, average="macro")
             if (
                 idx + 1
             ) % args.log_interval == 0:  # 적당 수준 돌았을 때 배치가 어느정도 우리가 설정한거에 맞게 돌면 찍는거 이 기준으로 평균도
                 train_loss = (
                     loss_value / args.log_interval
                 )  # 일종의 평균 로스 ( 로스를 다 찍는게 아닌 배치 평균찍는거-> 좀 더 생각)
-                train_acc = matches / args.batch_size / args.log_interval
+                train_acc = acc / args.log_interval
                 current_lr = get_lr(optimizer)  # lr scheduler를 쓰기 때문에 사용.
+
                 train_f1 = f1 / args.log_interval
+
                 print(
                     f"Epoch[{epoch}/{args.epochs}]({idx + 1}/{len(train_loader)}) || "  # 총 몇 에폭중 몇 에폭째인지 총 배치 중에 몇번쨰 배치인지
                     f"training loss {train_loss:4.4} || training accuracy {train_acc:4.2%} || lr {current_lr} || train f1-score {train_f1:4.4}"
@@ -354,24 +368,31 @@ def train(data_dir, model_dir, args):
                 logger.add_scalar(
                     "Train/F1-score", train_f1, epoch * len(train_loader) + idx
                 )
+
                 loss_value = 0
-                matches = 0
+                acc = 0
                 f1 = 0
+
         # val loop
+
         print("Calculating validation results...")
         model.eval()
         val_loss_items = []
         val_acc_items = []
         val_f1_items = []
         # wandb
+        example_imgaes = []
+        grad_cams = []
         figure = None
         for val_batch in val_loader:
             inputs, labels = val_batch
             inputs = inputs.to(device)
             labels = labels.to(device)
+
             ###################################################################################################################
             # if np.random.random() > 0.5 and args.cutmix == "yes":
             #     inputs, labels = CutmixFace(0.8)(inputs, labels)
+
             # # custom augmentation
             # if args.augmentation == "CustomAugmentation":
             #     aug_inputs = []
@@ -383,26 +404,35 @@ def train(data_dir, model_dir, args):
             #             aug_inputs.append(input)
             #     inputs = torch.stack(aug_inputs)
             ###################################################################################################################
+
             with torch.no_grad():
                 outs = model(inputs)
-            preds = torch.argmax(outs, dim=-1)
+            preds = torch.sigmoid(outs).data > 0.5
             loss_item = criterion(outs, labels).item()
-            acc_item = (labels == preds).sum().item()
+            acc_item = accuracy_score(label_metric, pred_metric)
+
             val_pred_f1 = torch.clone(preds).detach().cpu().numpy()
             val_label_f1 = torch.clone(labels).detach().cpu().numpy()
             f1_item = f1_score(val_label_f1, val_pred_f1, average="macro")
+
             val_loss_items.append(loss_item)
             val_acc_items.append(acc_item)
             val_f1_items.append(f1_item)
+
             # randint -> random image show in wandb
             i = random.randint(0, len(inputs) - 1)
+
             # wandb
+
             example_imgaes.append(
                 wandb.Image(
                     inputs[i],
-                    caption="Pred: {} Truth: {}".format(preds[i].item(), labels[i]),
+                    caption="Pred: {} Truth: {}".format(
+                        decode_multi_label(preds[i]), decode_multi_label(labels[i]),
+                    ),  ## need to num
                 )
             )
+
             # grad-cam
             def gradcam(inputs, i, model):
                 rgb_img = np.transpose(
@@ -421,31 +451,33 @@ def train(data_dir, model_dir, args):
                 return visualization
 
             visualization = gradcam(inputs, i, model)
+
             grad_cams.append(
                 wandb.Image(
                     visualization,
-                    caption="Pred: {} Truth: {}".format(preds[i].item(), labels[i]),
+                    caption="Pred: {} Truth: {}".format(
+                        decode_multi_label(preds[i]), decode_multi_label(labels[i]),
+                    ),
                 )
             )
-            if figure is None:
-                inputs_np = (
-                    torch.clone(inputs).detach().cpu().permute(0, 2, 3, 1).numpy()
-                )
-                inputs_np = dataset_module.denormalize_image(
-                    inputs_np, dataset.mean, dataset.std
-                )
-                figure = grid_image(
-                    inputs_np,
-                    labels,
-                    preds,
-                    n=16,
-                    shuffle=args.dataset != "MaskSplitByProfileDataset",
-                )
+            # if figure is None:
+            #     inputs_np = (
+            #         torch.clone(inputs).detach().cpu().permute(0, 2, 3, 1).numpy()
+            #     )
+            #     inputs_np = dataset_module.denormalize_image(
+            #         inputs_np, dataset.mean, dataset.std
+            #     )
+            #     figure = grid_image(
+            #         inputs_np,
+            #         labels,
+            #         preds,
+            #         n=16,
+            #         shuffle=args.dataset != "MaskSplitByProfileDataset",
+            #     )
         val_loss = np.sum(val_loss_items) / len(val_loader)
-        val_acc = np.sum(val_acc_items) / len(val_set)
+        val_acc = np.sum(val_acc_items) / len(val_loader)
         val_f1 = np.sum(val_f1_items) / len(val_loader)
         scheduler.step(val_f1)  # lr steping
-
         best_val_loss = min(best_val_loss, val_loss)
 
         if val_f1 > best_val_f1:  # 여기서 일종의 treshold를 정해주자. 한 0.005정도는 넘어야 new로 업데이트하게
@@ -463,12 +495,20 @@ def train(data_dir, model_dir, args):
             print("Early Stopping...")
             break
         torch.save(model.module.state_dict(), f"{save_dir}/last.pth")
-
+        # print(
+        #     f"[Val] acc : {val_acc:4.2%}, loss: {val_loss:4.2} || "
+        #     f"best acc : {best_val_acc:4.2%}, best loss: {best_val_loss:4.2}"
+        # )
         print(
             f"[Val] acc : {val_acc:4.2%}, loss: {val_loss:4.2} , F1-score : {val_f1:4.4}|| "
             f"best acc : {best_val_acc:4.2%}, best loss: {best_val_loss:4.2}, Best F1-score : {best_val_f1:4.4}"
         )
-
+        logger.add_scalar("Val/loss", val_loss, epoch)
+        logger.add_scalar("Val/accuracy", val_acc, epoch)
+        logger.add_scalar("Val/F1-score", val_f1, epoch)
+        # logger.add_figure(
+        #     "results", figure, epoch
+        # )  # 이렇게 figure를 우리가 원하는거를 tensorboard에 추가할 수도 있구나
         # wandb
         wandb.log(
             {
@@ -544,7 +584,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--valid_batch_size",
         type=int,
-        default=300,
+        default=64,
         help="input batch size for validing (default: 64)",  # https://study-grow.tistory.com/entry/RuntimeError-cuDNN-error-CUDNNSTATUSNOTSUPPORTED-This-error-may-appear-if-you-passed-in-a-non-contiguous-input-%EC%97%90%EB%9F%AC-%ED%95%B4%EA%B2%B0%EB%B2%95
     )  # 이거 줄이니까 문제 해결
     parser.add_argument(
@@ -557,7 +597,7 @@ if __name__ == "__main__":
         "--optimizer", type=str, default="Adam", help="optimizer type (default: Adam)"
     )
     parser.add_argument(
-        "--lr", type=float, default=3e-4, help="learning rate (default: 1e-3)"
+        "--lr", type=float, default=1e-3, help="learning rate (default: 1e-3)"
     )
     parser.add_argument(
         "--val_ratio",
@@ -571,8 +611,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--lr_decay_step",
         type=int,
-        default=2,
-        help="learning rate scheduler deacy step (default: 2)",
+        default=3,
+        help="learning rate scheduler deacy step (default: 3)",
     )
     parser.add_argument(
         "--log_interval",
