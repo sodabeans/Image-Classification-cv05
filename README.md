@@ -17,6 +17,7 @@
 
 
 
+SM_CHANNEL_EVAL='/opt/ml/input/data/eval' SM_CHANNEL_MODEL='/opt/ml/level1-image-classification-level1-cv-05/model/exp157' python inference.py --model ResNet
 
 # Convention
 ## Issue Template

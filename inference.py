@@ -57,8 +57,15 @@ def inference(data_dir, model_dir, output_dir, args):
     with torch.no_grad():
         for idx, images in enumerate(loader):
             images = images.to(device)
-            pred = model(images)
-            pred = pred.argmax(dim=-1)
+            if args.model == 'MultiTaskModel':
+                age_outs, gender_outs, mask_outs = model(images)
+                age_preds = torch.argmax(age_outs, dim=-1)
+                gender_preds = torch.argmax(gender_outs, dim=-1)
+                mask_preds = torch.argmax(mask_outs, dim=-1)
+                preds = MaskBaseDataset.encode_multi_class(mask_preds, gender_preds, age_preds)
+            else:
+                pred = model(images)
+                pred = pred.argmax(dim=-1)
             preds.extend(pred.cpu().numpy())
 
     info['ans'] = preds
@@ -70,7 +77,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     # Data and model checkpoints directories
-    parser.add_argument('--batch_size', type=int, default=1000, help='input batch size for validing (default: 1000)')
+    parser.add_argument('--batch_size', type=int, default=100, help='input batch size for validing (default: 1000)')
     parser.add_argument('--resize', type=tuple, default=(96, 128), help='resize size for image when you trained (default: (96, 128))')
     parser.add_argument('--model', type=str, default='BaseModel', help='model type (default: BaseModel)')
 

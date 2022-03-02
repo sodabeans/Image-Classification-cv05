@@ -1,3 +1,11 @@
 __pycache__/
 model/
 wandb/
+nni/
+output/
+fastai/
+
+*.ipynb
+
+label_fix.py
+label.py

@@ -1,5 +1,5 @@
 searchSpaceFile: search_space.json
-trialCommand: python3 mnist.py  # NOTE: change "python3" to "python" if you are using Windows
+trialCommand: python ../train.py  # NOTE: change "python3" to "python" if you are using Windows
 trialGpuNumber: 0
 trialConcurrency: 1
 tuner:
