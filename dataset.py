@@ -131,7 +131,7 @@ class CutoutAugmentation:
             else:
                 cxmin, cxmax = 0, w + offset
                 cymin, cymax = 0, h + offset
-
+ 
             cx = np.random.randint(cxmin, cxmax)
             cy = np.random.randint(cymin, cymax)
             xmin = cx - mask_size_half
