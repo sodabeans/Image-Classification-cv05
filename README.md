@@ -17,6 +17,7 @@
 
 
 
+SM_CHANNEL_MODEL='/opt/ml/level1-image-classification-level1-cv-05/model/__' python inference.py --model __
 
 # Convention
 ## Issue Template

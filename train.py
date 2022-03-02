@@ -11,14 +11,41 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR, LambdaLR
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-from dataset import MaskBaseDataset
+from dataset import MaskBaseDataset, CustomAugmentation
 from loss import create_criterion
 
+# f1
+from sklearn.metrics import f1_score
+
+# wandb
 import wandb # reference: https://greeksharifa.github.io/references/2020/06/10/wandb-usage/#pytorch
+
+# AutoML
+import nni
+from nni.utils import merge_parameter
+# from pytorchtools import EarlyStopping
+
+# grad_cam
+from pytorch_grad_cam import GradCAM
+from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
+from pytorch_grad_cam.utils.image import show_cam_on_image
+import cv2
+
+from adamp import AdamP, SGDP
+
+# mtl
+import torch
+import torch.nn as nn
+# from fastai.vision import *
+from model import MultiTaskModel
+
+# ignore warnings
+import warnings
+warnings.filterwarnings('ignore')
 
 def seed_everything(seed):
     torch.manual_seed(seed)
@@ -84,7 +111,37 @@ def increment_path(path, exist_ok=False):
         return f"{path}{n}"
 
 
+# mtl
+class MultiTaskLossWrapper(nn.Module):
+    def __init__(self, task_num):
+        super(MultiTaskLossWrapper, self).__init__()
+        self.task_num = task_num
+        self.log_vars = nn.Parameter(torch.zeros((task_num)))
+
+    def forward(self, preds, age, gender, mask):
+
+        crossEntropy = nn.CrossEntropyLoss()
+
+        loss0 = crossEntropy(preds[0], age)
+        loss1 = crossEntropy(preds[1],gender)
+        loss2 = crossEntropy(preds[2],mask)
+
+        precision0 = torch.exp(-self.log_vars[0])
+        loss0 = precision0*loss0 + self.log_vars[0]
+
+        precision1 = torch.exp(-self.log_vars[1])
+        loss1 = precision1*loss1 + self.log_vars[1]
+
+        precision2 = torch.exp(-self.log_vars[2])
+        loss2 = precision2*loss2 + self.log_vars[2]
+        
+        return loss0+loss1+loss2
+
+
 def train(data_dir, model_dir, args):
+    patience = 10
+    counter = 0
+
     seed_everything(args.seed)
 
     save_dir = increment_path(os.path.join(model_dir, args.name))
@@ -141,15 +198,31 @@ def train(data_dir, model_dir, args):
 
     wandb.watch(model)
 
-    # -- loss & metric
+    # -- criterion
     criterion = create_criterion(args.criterion)  # default: cross_entropy
-    opt_module = getattr(import_module("torch.optim"), args.optimizer)  # default: SGD
-    optimizer = opt_module(
-        filter(lambda p: p.requires_grad, model.parameters()),
-        lr=args.lr,
-        weight_decay=5e-4
-    )
-    scheduler = StepLR(optimizer, args.lr_decay_step, gamma=0.5)
+
+    # --optimizer
+    if args.optimizer == 'adamp':
+        optimizer = AdamP(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, betas=(0.9, 0.999), weight_decay=1e-2, nesterov=True)
+    elif args.optimizer == 'sgdp':
+        optimizer = SGDP(filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, weight_decay=1e-5, momentum=0.9, nesterov=True)
+    else:
+        opt_module = getattr(import_module("torch.optim"), args.optimizer)  # default: Adam
+        optimizer = opt_module(
+            filter(lambda p: p.requires_grad, model.parameters()),
+            lr=args.lr,
+            weight_decay=5e-4
+        )
+
+    # --scheduler
+    if args.scheduler == 'cosine':
+        scheduler = CosineAnnealingLR(optimizer, T_max=50, eta_min=0)
+    elif args.scheduler == 'lambda':
+        scheduler = LambdaLR(optimizer, lr_lambda=lambda epoch: 0.95 ** epoch,
+                            last_epoch=-1, verbose=False)
+    else:
+        scheduler = StepLR(optimizer, args.lr_decay_step, gamma=0.5)
+    
 
     # -- logging
     logger = SummaryWriter(log_dir=save_dir)
@@ -158,63 +231,156 @@ def train(data_dir, model_dir, args):
 
     best_val_acc = 0
     best_val_loss = np.inf
+    best_val_f1 = 0
+
+    
+
     for epoch in range(args.epochs):
         # train loop
         model.train()
         loss_value = 0
         matches = 0
+        f1 = 0
+
         for idx, train_batch in enumerate(train_loader):
-            inputs, labels = train_batch
-            inputs = inputs.to(device)
-            labels = labels.to(device)
+            if args.model == 'MultiTaskModel':
+                inputs, (age_labels, gender_labels, mask_labels) = train_batch
+                inputs = inputs.to(device)
+                age_labels = age_labels.to(device)
+                gender_labels = gender_labels.to(device)
+                mask_labels = mask_labels.to(device)
+                labels = MaskBaseDataset.encode_multi_class(mask_labels, gender_labels, age_labels)
+                
+                optimizer.zero_grad()
 
-            optimizer.zero_grad()
+                age_outs, gender_outs, mask_outs = model(inputs)
 
-            outs = model(inputs)
-            preds = torch.argmax(outs, dim=-1)
-            loss = criterion(outs, labels)
+                age_preds = torch.argmax(age_outs, dim=-1)
+                gender_preds = torch.argmax(gender_outs, dim=-1)
+                mask_preds = torch.argmax(mask_outs, dim=-1)
+                preds = MaskBaseDataset.encode_multi_class(mask_preds, gender_preds, age_preds)
+
+                age_loss = criterion(age_outs, age_labels)
+                gender_loss = criterion(gender_outs, gender_labels)
+                mask_loss = criterion(mask_outs, mask_labels)
+
+                loss = age_loss + gender_loss + mask_loss
+            else:
+                inputs, labels = train_batch
+                inputs = inputs.to(device)
+                labels = labels.to(device)
+
+                optimizer.zero_grad()
+
+                outs = model(inputs)
+                preds = torch.argmax(outs, dim=-1)
+                loss = criterion(outs, labels)
+
+            """
+            if np.random.random() > 0.5 and args.cutmix == "yes":
+                inputs, labels = CutmixFace(0.8)(inputs, labels)
+            
+            # custom augmentation
+            if args.augmentation == "CustomAugmentation":
+                aug_inputs = []
+                for input, label in zip(inputs, labels):
+                    if label not in [0, 1, 3, 4]:
+                        aug_input = augmentation(input)
+                        aug_inputs.append(aug_input)
+                    else:
+                        aug_inputs.append(input)
+                inputs = torch.stack(aug_inputs)
+            """
+            
 
             loss.backward()
             optimizer.step()
 
             loss_value += loss.item()
             matches += (preds == labels).sum().item()
+
+            pred_f1 = torch.clone(preds).detach().cpu().numpy()
+            label_f1 = torch.clone(labels).detach().cpu().numpy()
+            f1 += f1_score(label_f1, pred_f1, average="macro")
+
             if (idx + 1) % args.log_interval == 0:
                 train_loss = loss_value / args.log_interval
                 train_acc = matches / args.batch_size / args.log_interval
                 current_lr = get_lr(optimizer)
+
+                train_f1 = f1 / args.log_interval
+
                 print(
-                    f"Epoch[{epoch + 1}/{args.epochs}]({idx + 1}/{len(train_loader)}) || "
+                    f"Epoch[{epoch + 1}/{args.epochs}]({idx + 1}/{len(train_loader)}) || train f1-score {train_f1:4.2%} "
                     f"training loss {train_loss:4.4} || training accuracy {train_acc:4.2%} || lr {current_lr}"
                 )
                 logger.add_scalar("Train/loss", train_loss, epoch * len(train_loader) + idx)
                 logger.add_scalar("Train/accuracy", train_acc, epoch * len(train_loader) + idx)
+                logger.add_scalar("Train/f1", train_f1, epoch * len(train_loader) + idx)
 
                 loss_value = 0
                 matches = 0
+                f1 = 0
 
         scheduler.step()
 
-        example_images = [] # for wandb
-
+        # for wandb
+        example_images = []
+        grad_cams = []
+        # start
         # val loop
         with torch.no_grad():
             print("Calculating validation results...")
             model.eval()
             val_loss_items = []
             val_acc_items = []
+            val_f1_items = []
             figure = None
 
             for val_batch in val_loader:
-                inputs, labels = val_batch
-                inputs = inputs.to(device)
-                labels = labels.to(device)
+                if args.model == 'MultiTaskModel':
+                    inputs, (age_labels, gender_labels, mask_labels) = val_batch
+                    age_labels = age_labels.to(device)
+                    gender_labels = gender_labels.to(device)
+                    mask_labels = mask_labels.to(device)
+                    labels = MaskBaseDataset.encode_multi_class(mask_labels, gender_labels, age_labels)
 
-                outs = model(inputs)
-                preds = torch.argmax(outs, dim=-1)
+                    age_outs, gender_outs, mask_outs = model(inputs)
 
-                loss_item = criterion(outs, labels).item()
+                    age_loss = criterion(age_outs, age_labels)
+                    gender_loss = criterion(gender_outs, gender_labels)
+                    mask_loss = criterion(mask_outs, mask_labels)
+
+                    loss_item = age_loss + gender_loss + mask_loss
+                    loss_item = loss_item.cpu().numpy()
+
+                    age_preds = torch.argmax(age_outs, dim=-1)
+                    gender_preds = torch.argmax(gender_outs, dim=-1)
+                    mask_preds = torch.argmax(mask_outs, dim=-1)
+                    preds = MaskBaseDataset.encode_multi_class(mask_preds, gender_preds, age_preds)
+                    # checkpoint = 0
+                    # if checkpoint < 10:
+                    #     print(labels)
+                    #     print(preds)
+                    #     checkpoint = checkpoint + 1
+                else:
+                    inputs, labels = val_batch
+                    inputs = inputs.to(device)
+                    labels = labels.to(device)
+
+                    outs = model(inputs)
+                    preds = torch.argmax(outs, dim=-1)
+
+                    loss_item = criterion(outs, labels).item()
+                
                 acc_item = (labels == preds).sum().item()
+
+                val_pred_f1 = torch.clone(preds).detach().cpu().numpy()
+                val_label_f1 = torch.clone(labels).detach().cpu().numpy()
+                f1_item = f1_score(val_label_f1, val_pred_f1, average="macro")
+
+                val_f1_items.append(f1_item)
+
                 val_loss_items.append(loss_item)
                 val_acc_items.append(acc_item)
 
@@ -229,29 +395,71 @@ def train(data_dir, model_dir, args):
                     inputs[0], caption="Pred: {} Truth: {}".format(preds[0].item(), labels[0])
                 ))
 
+                # grad-cam
+                def gradcam(inputs, model):
+                    rgb_img = np.transpose(
+                        np.float32(np.clip(inputs[0].cpu().numpy(), 0, 1)), (1, 2, 0)
+                    )
+                    target_layers = [model.module.fc()]
+                    cam = GradCAM(
+                        model=model, target_layers=target_layers, use_cuda=use_cuda
+                    )
+                # print(torch.unsqueeze(inputs[i], 0))
+                    grayscale_cam = cam(input_tensor=torch.unsqueeze(inputs[0], 0))
+                    grayscale_cam = grayscale_cam[0, :]
+                    visualization = show_cam_on_image(
+                        rgb_img, grayscale_cam, use_rgb=True, colormap=cv2.COLORMAP_JET
+                    )
+                    return visualization
+
+            # visualization = gradcam(inputs, model)
+            # grad_cams.append(wandb.Image(
+            #     visualization, caption="Pred: {} Truth: {}".format(preds[0].item(), labels[0]),
+            # ))
+
             val_loss = np.sum(val_loss_items) / len(val_loader)
             val_acc = np.sum(val_acc_items) / len(val_set)
+            val_f1 = np.sum(val_f1_items) / len(val_loader)
+            
+            scheduler.step(val_f1)
+
             best_val_loss = min(best_val_loss, val_loss)
-            if val_acc > best_val_acc:
-                print(f"New best model for val accuracy : {val_acc:4.2%}! saving the best model..")
+            best_val_acc = max(best_val_acc, val_acc)
+
+            if val_f1 > best_val_f1:
+                print(f"New best model for val f1 : {val_f1:4.2%}! saving the best model..")
                 torch.save(model.module.state_dict(), f"{save_dir}/best.pth")
-                best_val_acc = val_acc
+                best_val_f1 = val_f1
+                counter = 0
+            else:
+                counter += 1
+            
             torch.save(model.module.state_dict(), f"{save_dir}/last.pth")
             print(
-                f"[Val] acc : {val_acc:4.2%}, loss: {val_loss:4.2} || "
-                f"best acc : {best_val_acc:4.2%}, best loss: {best_val_loss:4.2}"
+                f"[Val] acc : {val_acc:4.2%}, loss: {val_loss:4.2} f1: {val_f1:4.2%} || "
+                f"best acc : {best_val_acc:4.2%}, best loss: {best_val_loss:4.2}, best f1: {best_val_f1:4.2%}"
             )
             logger.add_scalar("Val/loss", val_loss, epoch)
             logger.add_scalar("Val/accuracy", val_acc, epoch)
+            logger.add_scalar("Val/f1", val_f1, epoch)
             logger.add_figure("results", figure, epoch)
             print()
-            nni.report_intermediate_result(val_acc)
 
             wandb.log({
-                "Val Loss: ": val_loss,
-                "Val acc: ": val_acc
+                # "Img": example_images,
+                # "Grad_CAM": grad_cams,
+                "Val Loss": val_loss,
+                "Val Acc": val_acc,
+                "Val F1": val_f1,
+                "figure": figure,
             })
-        nni.report_final_result(val_acc)
+
+            if counter > patience:
+                print("Early Stopping...")
+                break
+
+            # early_stopping(val_loss, model)
+        #end
 
 
 if __name__ == '__main__':
@@ -261,32 +469,34 @@ if __name__ == '__main__':
     import os
     load_dotenv(verbose=True)
 
-    wandb.init(project="dabin", entity="shine_light")
+    wandb.init(project="final", reinit=True) #TODO
 
     # Data and model checkpoints directories
     parser.add_argument('--seed', type=int, default=42, help='random seed (default: 42)')
-    parser.add_argument('--epochs', type=int, default=10, help='number of epochs to train (default: 1)')
+    parser.add_argument('--epochs', type=int, default=30, help='number of epochs to train (default: 30)')
     parser.add_argument('--dataset', type=str, default='MaskBaseDataset', help='dataset augmentation type (default: MaskBaseDataset)')
     parser.add_argument('--augmentation', type=str, default='BaseAugmentation', help='data augmentation type (default: BaseAugmentation)')
-    parser.add_argument("--resize", nargs="+", type=list, default=[384, 512], help='resize size for image when training')
+    parser.add_argument("--resize", nargs="+", type=list, default=[128, 96], help='resize size for image when training')
     parser.add_argument('--batch_size', type=int, default=64, help='input batch size for training (default: 64)')
     parser.add_argument('--valid_batch_size', type=int, default=100, help='input batch size for validing (default: 1000)')
-    parser.add_argument('--model', type=str, default='SqueezeNet', help='model type (default: BaseModel)')
-    parser.add_argument('--optimizer', type=str, default='Adam', help='optimizer type (default: Adam)')
+    parser.add_argument('--model', type=str, default='ResNet', help='model type (default: BaseModel)')
+    parser.add_argument('--optimizer', type=str, default='adamp', help='optimizer type (default: adamp)')
     parser.add_argument('--lr', type=float, default=1e-3, help='learning rate (default: 1e-3)')
     parser.add_argument('--val_ratio', type=float, default=0.2, help='ratio for validaton (default: 0.2)')
-    parser.add_argument('--criterion', type=str, default='f1', help='criterion type (default: cross_entropy)')
-    parser.add_argument('--lr_decay_step', type=int, default=10, help='learning rate scheduler deacy step (default: 20)')
+    parser.add_argument('--criterion', type=str, default='focal', help='criterion type (list: cross_entropy, f1, focal, label_smoothing)')
+    parser.add_argument('--lr_decay_step', type=int, default=10, help='learning rate scheduler decay step (default: 20)')
     parser.add_argument('--log_interval', type=int, default=20, help='how many batches to wait before logging training status')
     parser.add_argument('--name', default='exp', help='model save at {SM_MODEL_DIR}/{name}')
+    parser.add_argument('--scheduler', default='default', help='cosine, lambda, default')
+    parser.add_argument('--cutmix', default='default', help='default, yes')
 
     # Container environment
     parser.add_argument('--data_dir', type=str, default=os.environ.get('SM_CHANNEL_TRAIN', '/opt/ml/input/data/train/images'))
     parser.add_argument('--model_dir', type=str, default=os.environ.get('SM_MODEL_DIR', './model'))
 
     args = parser.parse_args()
-    tuner_params = nni.get_next_parameter()
-    args = vars(merge_parameter(args(), tuner_params))
+    # tuner_params = nni.get_next_parameter()
+    # args = vars(merge_parameter(args(), tuner_params))
     print(args)
 
     wandb.config.update(args)
