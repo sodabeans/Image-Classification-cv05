@@ -84,8 +84,11 @@ def increment_path(path, exist_ok=False):
         n = max(i) + 1 if i else 2
         return f"{path}{n}"
 
-
+import time
 def train(data_dir, model_dir, args):
+    
+
+
     seed_everything(args.seed)
 
     save_dir = increment_path(os.path.join(model_dir, args.name))
@@ -105,6 +108,7 @@ def train(data_dir, model_dir, args):
     )
     num_classes = dataset.num_classes  # 18
 
+    
     # -- augmentation
     transform_module = getattr(import_module("dataset"), args.augmentation)  # default: BaseAugmentation
     transform = transform_module(
@@ -115,25 +119,29 @@ def train(data_dir, model_dir, args):
     dataset.set_transform(transform)
 
     # -- data_loader
-    train_set, val_set = dataset.split_dataset()
-
     train_loader = DataLoader(
-        train_set,
+        dataset,
         batch_size=args.batch_size,
         num_workers=0, #multiprocessing.cpu_count() // 2,
         shuffle=True,
         pin_memory=use_cuda,
         drop_last=True,
     )
+    
+    #train_set, val_set = dataset.split_dataset()
+#
+#
+    #val_loader = DataLoader(
+    #    val_set,
+    #    batch_size=args.valid_batch_size,
+    #    num_workers=0, #multiprocessing.cpu_count() // 2,
+    #    shuffle=False,
+    #    pin_memory=use_cuda,
+    #    drop_last=True,
+    #)
 
-    val_loader = DataLoader(
-        val_set,
-        batch_size=args.valid_batch_size,
-        num_workers=0, #multiprocessing.cpu_count() // 2,
-        shuffle=False,
-        pin_memory=use_cuda,
-        drop_last=True,
-    )
+    
+
 
     # -- model
     model_module = getattr(import_module("model"), args.model)  # default: BaseModel
@@ -160,6 +168,9 @@ def train(data_dir, model_dir, args):
     best_val_acc = 0
     best_val_loss = np.inf
     for epoch in range(args.epochs):
+        tm = time.localtime(time.time())
+        print(f'Epoch{epoch+1} Start')
+        print(f"{tm.tm_mon}/{tm.tm_mday} {tm.tm_hour}:{tm.tm_min}")
         # train loop
         model.train()
         loss_value = 0
@@ -173,7 +184,7 @@ def train(data_dir, model_dir, args):
             optimizer.zero_grad()
 
             outs = model(inputs)
-            outs = outs[0]
+            outs = outs[0]      # InceptionV3
             preds = torch.argmax(outs, dim=-1)
             
             #print(inputs.shape, outs.shape)
@@ -199,52 +210,57 @@ def train(data_dir, model_dir, args):
 
                 loss_value = 0
                 matches = 0
-        wandb.log({"loss": train_loss, "acc": train_acc})
+        #wandb.log({"loss": train_loss, "acc": train_acc})
         scheduler.step()
 
+        
         # val loop
-        with torch.no_grad():
-            print("Calculating validation results...")
-            model.eval()
-            val_loss_items = []
-            val_acc_items = []
-            figure = None
-            for val_batch in val_loader:
-                inputs, labels = val_batch
-                inputs = inputs.to(device)
-                labels = labels.to(device)
-
-                outs = model(inputs)
-                preds = torch.argmax(outs, dim=-1)
-
-                loss_item = criterion(outs, labels).item()
-                acc_item = (labels == preds).sum().item()
-                val_loss_items.append(loss_item)
-                val_acc_items.append(acc_item)
-
-                if figure is None:
-                    inputs_np = torch.clone(inputs).detach().cpu().permute(0, 2, 3, 1).numpy()
-                    inputs_np = dataset_module.denormalize_image(inputs_np, dataset.mean, dataset.std)
-                    figure = grid_image(
-                        inputs_np, labels, preds, n=16, shuffle=args.dataset != "MaskSplitByProfileDataset"
-                    )
-
-            val_loss = np.sum(val_loss_items) / len(val_loader)
-            val_acc = np.sum(val_acc_items) / len(val_set)
-            best_val_loss = min(best_val_loss, val_loss)
-            if val_acc > best_val_acc:
-                print(f"New best model for val accuracy : {val_acc:4.2%}! saving the best model..")
-                torch.save(model.module.state_dict(), f"{save_dir}/best.pth")
-                best_val_acc = val_acc
-            torch.save(model.module.state_dict(), f"{save_dir}/last.pth")
-            print(
-                f"[Val] acc : {val_acc:4.2%}, loss: {val_loss:4.2} || "
-                f"best acc : {best_val_acc:4.2%}, best loss: {best_val_loss:4.2}"
-            )
-            logger.add_scalar("Val/loss", val_loss, epoch)
-            logger.add_scalar("Val/accuracy", val_acc, epoch)
-            logger.add_figure("results", figure, epoch)
-            print()
+        #with torch.no_grad():
+        #    print("Calculating validation results...")
+        #    model.eval()
+        #    val_loss_items = []
+        #    val_acc_items = []
+        #    figure = None
+        #    for val_batch in val_loader:
+        #        inputs, labels = val_batch
+        #        inputs = inputs.to(device)
+        #        labels = labels.to(device)
+#
+        #        outs = model(inputs)
+        #        preds = torch.argmax(outs, dim=-1)
+#
+        #        loss_item = criterion(outs, labels).item()
+        #        acc_item = (labels == preds).sum().item()
+        #        val_loss_items.append(loss_item)
+        #        val_acc_items.append(acc_item)
+#
+        #        if figure is None:
+        #            inputs_np = torch.clone(inputs).detach().cpu().permute(0, 2, 3, 1).numpy()
+        #            inputs_np = dataset_module.denormalize_image(inputs_np, dataset.mean, dataset.std)
+        #            figure = grid_image(
+        #                inputs_np, labels, preds, n=16, shuffle=args.dataset != "MaskSplitByProfileDataset"
+        #            )
+#
+        #    val_loss = np.sum(val_loss_items) / len(val_loader)
+        #    val_acc = np.sum(val_acc_items) / len(val_set)
+        #    best_val_loss = min(best_val_loss, val_loss)
+        #    if val_acc > best_val_acc:
+        #        print(f"New best model for val accuracy : {val_acc:4.2%}! saving the best model..")
+        #        torch.save(model.module.state_dict(), f"{save_dir}/best.pth")
+        #        best_val_acc = val_acc
+        #    torch.save(model.module.state_dict(), f"{save_dir}/last.pth")
+        #    print(
+        #        f"[Val] acc : {val_acc:4.2%}, loss: {val_loss:4.2} || "
+        #        f"best acc : {best_val_acc:4.2%}, best loss: {best_val_loss:4.2}"
+        #    )
+        #    logger.add_scalar("Val/loss", val_loss, epoch)
+        #    logger.add_scalar("Val/accuracy", val_acc, epoch)
+        #    logger.add_figure("results", figure, epoch)
+        #    print()
+        
+        tm = time.localtime(time.time())
+        print(f'Epoch{epoch+1} Finished')
+        print(f"{tm.tm_mon}/{tm.tm_mday} {tm.tm_hour}:{tm.tm_min}")
 
 
 if __name__ == '__main__':
@@ -257,7 +273,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str, default='MaskSplitByProfileDataset', help='dataset augmentation type (default: MaskSplitByProfileDataset)')
     
     
-    epoch_num = 250
+    epoch_num = 150
     learning_rate = 1e-3
     batch_size = 128
 
@@ -273,7 +289,7 @@ if __name__ == '__main__':
     #resize
     parser.add_argument("--resize", nargs="+", type=list, default=(299, 299), help='resize size for image when training')
     #loss function
-    parser.add_argument('--criterion', type=str, default='cross_entropy', help='criterion type (default: cross_entropy)')
+    parser.add_argument('--criterion', type=str, default='cross_entropy', help='criterion type (default: cross _entropy)')
     
     
     #batch size
@@ -281,7 +297,7 @@ if __name__ == '__main__':
     #val batch size
     parser.add_argument('--valid_batch_size', type=int, default=batch_size, help='input batch size for validing (default: 1000)')
     #dataset train/val ratio
-    parser.add_argument('--val_ratio', type=float, default=0.2, help='ratio for validaton (default: 0.2)')
+    parser.add_argument('--val_ratio', type=float, default=0.1, help='ratio for validaton (default: 0.2)')
 
     #learning rate
     parser.add_argument('--lr', type=float, default=learning_rate, help='learning rate (default: 1e-3)')

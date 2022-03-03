@@ -72,7 +72,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     # Data and model checkpoints directories
-    parser.add_argument('--batch_size', type=int, default=64, help='input batch size for validing (default: 1000)')
+    parser.add_argument('--batch_size', type=int, default=128, help='input batch size for validing (default: 1000)')
     parser.add_argument('--resize', type=tuple, default=(299, 299), help='resize size for image when you trained (default: (96, 128))')
     parser.add_argument('--model', type=str, default='InceptionV3', help='model type (default: BaseModel)')
 

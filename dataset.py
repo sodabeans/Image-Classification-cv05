@@ -55,8 +55,9 @@ class CustomAugmentation:
             CenterCrop((299, 299)),
             Resize(resize, Image.BILINEAR),
             RandomHorizontalFlip(p=0.5),
-            AutoAugment(AutoAugmentPolicy.SVHN),
+            #AutoAugment(AutoAugmentPolicy.SVHN),
             ToTensor(),
+            Grayscale(num_output_channels=3),
             Normalize(mean=mean, std=std),
             #AddGaussianNoise()
         ])
@@ -235,6 +236,18 @@ class MaskBaseDataset(Dataset):
         train_set, val_set = random_split(self, [n_train, n_val])
         return train_set, val_set
 
+from sklearn.model_selection import StratifiedKFold
+class StratifiedKFoldDataset(MaskBaseDataset):
+    def split_dataset(self) -> Tuple[Subset, Subset]:
+        skf = StratifiedKFold(n_splits=4)
+        
+
+
+
+
+
+
+
 
 class MaskSplitByProfileDataset(MaskBaseDataset):
     """
@@ -298,8 +311,10 @@ class TestDataset(Dataset):
     def __init__(self, img_paths, resize, mean=(0.548, 0.504, 0.479), std=(0.237, 0.247, 0.246)):
         self.img_paths = img_paths
         self.transform = Compose([
+            CenterCrop((299, 299)),
             Resize(resize, Image.BILINEAR),
             ToTensor(),
+            Grayscale(num_output_channels=3),
             Normalize(mean=mean, std=std),
         ])
 
