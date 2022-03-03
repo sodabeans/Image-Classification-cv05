@@ -1,0 +1,16 @@
+dropout: 0.5
+cutmix: "no"
+resize: [512,384]
+batch_size: 32
+model: 'Res18'
+optimizer: 'AdamW'
+lr: 0.001
+criterion: 'LADE'
+#early_terminate:
+#  type: hyperband
+#   s: 2
+#   eta: 3
+#   max_iter: 27
+
+
+# Namespace(cutmix='no', resize=[512, 384], batch_size=32, model='Res18Model', optimizer='AdamW', lr=0.0003,  criterion='LADE')

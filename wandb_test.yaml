@@ -1,0 +1,14 @@
+program: wandb_test2.py
+method: bayes
+metric:
+  goal: maximize
+  name: test
+parameters:
+  a:
+    distribution: int_uniform
+    min: 28
+    max: 40
+  b:
+    distribution: int_uniform
+    min: 5
+    max: 10

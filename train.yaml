@@ -1,0 +1,54 @@
+program: train_sweep.py
+method: bayes
+metric:
+  goal: maximize
+  name: Mean_F1_Score
+parameters:
+  cutmix:
+    distribution: categorical
+    values:
+    - "yes"
+    - "no"
+  dropout:
+    distribution: uniform
+    min: 0.2
+    max: 0.8
+  batch_size:
+    distribution: int_uniform
+    min: 28
+    max: 40
+  model:
+    distribution: categorical
+    values: 
+    - Res18
+    - Res50
+    - Efficient
+    - NFRegnet
+    - Mixnet
+  optimizer: 
+    distribution: categorical
+    values: 
+    - Adam
+    - AdamW
+    - RMSprop
+  lr:
+    distribution: uniform
+    min : 0.0001
+    max : 0.001
+  criterion: 
+    distribution: categorical
+    values: 
+    - 'LADE'
+    - 'focal'
+  # resize:
+  #   values: [[512,384],[384,288]]
+# early_terminate:
+#   type: hyperband
+#   s: 2
+#   eta: 3
+#   max_iter: 27
+
+
+# Namespace(cutmix='no', resize=[512, 384], batch_size=32, model='Res18Model', optimizer='AdamW', lr=0.0003,  criterion='LADE')
+
+# https://docs.wandb.ai/guides/sweeps/configuration
