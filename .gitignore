@@ -6,7 +6,6 @@ output/
 fastai/
 
 *.ipynb
-*.sh
 
 label_fix.py
 label.py
