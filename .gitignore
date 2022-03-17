@@ -5,7 +5,7 @@ nni/
 output/
 fastai/
 
-*.ipynb
+draft.ipynb
 *.sh
 
 label_fix.py

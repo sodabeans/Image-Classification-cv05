@@ -166,7 +166,6 @@ class Inception(nn.Module):
         super().__init__()
         self.Inception = models.inception_v3(pretrained=True)
         self.Inception.fc = nn.Linear(2048, num_classes)
-        self.Inception.num_classes = num_classes
 
     def forward(self, x):
         x = self.Inception(x)
@@ -177,7 +176,6 @@ class ShuffleNet(nn.Module):
     def __init__(self, num_classes):
         super().__init__()
         self.ShuffleNet = models.shufflenet_v2_x1_0(pretrained=True)
-        self.ShuffleNet.num_classes = num_classes
 
     def forward(self, x):
         x = self.ShuffleNet(x)
@@ -288,12 +286,18 @@ class MultiTaskModel(nn.Module):
         super().__init__()
         self.AgeModel = models.googlenet(pretrained=True)
         self.AgeModel.fc = nn.Linear(1024, 3)
+        # self.AgeModel = models.resnet18(pretrained=True)
+        # self.AgeModel.fc = nn.Linear(512, 3)
 
-        self.GenderModel = models.resnet18(pretrained=True)
-        self.GenderModel.fc = nn.Linear(512, 2)
+        self.GenderModel = models.googlenet(pretrained=True)
+        self.GenderModel.fc = nn.Linear(1024, 2)
+        # self.GenderModel = models.resnet18(pretrained=True)
+        # self.GenderModel.fc = nn.Linear(512, 2)
 
-        self.MaskModel = models.resnet18(pretrained=True)
-        self.MaskModel.fc = nn.Linear(512, 3)
+        self.MaskModel = models.googlenet(pretrained=True)
+        self.MaskModel.fc = nn.Linear(1024, 3)
+        # self.MaskModel = models.resnet18(pretrained=True)
+        # self.MaskModel.fc = nn.Linear(512, 3)
 
 
     def forward(self, x):

@@ -36,11 +36,6 @@ def inference(data_dir, model_dir, output_dir, args):
     num_classes = MaskBaseDataset.num_classes  # 18
     model = load_model(model_dir, num_classes, device).to(device)
     model.eval()
-    
-    if model.training:
-        print("validation state but training...")
-    else:
-        print("not training...")
 
     img_root = os.path.join(data_dir, 'images')
     info_path = os.path.join(data_dir, 'info.csv')
@@ -64,6 +59,11 @@ def inference(data_dir, model_dir, output_dir, args):
     age_3 = 0
     with torch.no_grad():
         for idx, images in enumerate(loader):
+            # if model.training:
+            #     print("validation state but training...")
+            # else:
+            #     print("not training...")
+                
             images = images.to(device)
             if args.model == 'MultiTaskModel':
                 age_outs, gender_outs, mask_outs = model(images)
@@ -75,16 +75,17 @@ def inference(data_dir, model_dir, output_dir, args):
                 pred = model(images)
                 pred = pred.argmax(dim=-1)
             preds.extend(pred.cpu().numpy())
-            if pred == 2 or pred == 5 or pred == 8 or pred == 11 or pred == 14 or pred == 17:
-                age_3 = age_3 + 1
-            elif pred == 1 or pred == 4 or pred == 7 or pred == 10 or pred == 13 or pred == 16:
-                age_2 = age_2 + 1
-            else:
-                age_1 = age_1 + 1
+    #         for p in pred:
+    #             if p == 2 or p == 5 or p == 8 or p == 11 or p == 14 or p == 17:
+    #                 age_3 = age_3 + 1
+    #             elif p == 1 or p == 4 or p == 7 or p == 10 or p == 13 or p == 16:
+    #                 age_2 = age_2 + 1
+    #             else:
+    #                 age_1 = age_1 + 1
     
-    print(age_1)
-    print(age_2)
-    print(age_3)
+    # print(age_1)
+    # print(age_2)
+    # print(age_3)
 
     info['ans'] = preds
     info.to_csv(os.path.join(output_dir, f'output.csv'), index=False)

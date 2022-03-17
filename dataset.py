@@ -53,12 +53,12 @@ class AddGaussianNoise(object):
 class CustomAugmentation:
     def __init__(self, resize, mean, std, **args):
         self.transform = transforms.Compose([
-            transforms.CenterCrop((300, 300)),
-            transforms.Resize(resize, Image.BILINEAR),
-            transforms.ColorJitter(0.6, 0.5, 0.5, 0.5),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=mean, std=std),
-            transforms.RandomHorizontalFlip(0.5),
+            CenterCrop((300, 300)),
+            Resize(resize, Image.BILINEAR),
+            ColorJitter(0.6, 0.5, 0.5, 0.5),
+            ToTensor(),
+            Normalize(mean=mean, std=std),
+            RandomHorizontalFlip(0.5),
             AddGaussianNoise()
         ])
 
