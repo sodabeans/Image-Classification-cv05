@@ -140,7 +140,6 @@ class DenseNet(nn.Module):
         x = self.DenseNet(x)
         return x
 
-
 class VGG(nn.Module):
     def __init__(self, num_classes):
         super().__init__()
@@ -251,6 +250,7 @@ class EfficientNet(nn.Module):
     def forward(self, x):
         x = self.EfficientNet(x)
         return x
+
 
 
 class LeNet(nn.Module):

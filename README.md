@@ -15,10 +15,6 @@
 ### Evaluation
 - `SM_GROUND_TRUTH_DIR=[GT dir] SM_OUTPUT_DATA_DIR=[inference output dir] python evaluation.py`
 
-
-
-SM_CHANNEL_MODEL='/opt/ml/level1-image-classification-level1-cv-05/model/__' python inference.py --model __
-
 # Convention
 ## Issue Template
 **Title** : [ Head ] contents
