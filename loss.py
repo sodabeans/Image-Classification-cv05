@@ -7,7 +7,7 @@ import torch.nn.functional as F
 class FocalLoss(nn.Module):
     def __init__(self, weight=None, gamma=2.0, reduction="mean"):
         nn.Module.__init__(self)
-        self.weight = weight
+        self.weight = weight  # 상대적 클래스 중요도를 나타내는 1차원 tensor
         self.gamma = gamma
         self.reduction = reduction
 
