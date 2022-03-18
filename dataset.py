@@ -78,6 +78,7 @@ class CustomAugmentation:
     def __call__(self, image):
         return self.transform(image)
 
+
 class CutoutAugmentation:
     def __init__(self, resize, mean, std, **args):
         self.mean = np.array([0.548, 0.504, 0.479])
@@ -88,19 +89,18 @@ class CutoutAugmentation:
                 # RandomCrop(32, padding=4),
                 RandomHorizontalFlip(),
                 self.normalize(self.mean, self.std),
-                self.cutout(8,
-                0.4,
-                False),
+                self.cutout(12, 0.4, False),
                 self.to_tensor(),
             ]
         )
+
     def to_tensor(self):
         def _to_tensor(image):
             if len(image.shape) == 3:
-                return torch.from_numpy(
-                    image.transpose(2, 0, 1).astype(np.float32))
+                return torch.from_numpy(image.transpose(2, 0, 1).astype(np.float32))
             else:
                 return torch.from_numpy(image[None, :, :].astype(np.float32))
+
         return _to_tensor
 
     def normalize(self, mean, std):
@@ -108,10 +108,11 @@ class CutoutAugmentation:
         std = np.array(std)
 
         def _normalize(image):
-            image = np.asarray(image).astype(np.float32) / 255.
+            image = np.asarray(image).astype(np.float32) / 255.0
             image = (image - mean) / std
             return image
-        return _normalize   
+
+        return _normalize
 
     def cutout(self, mask_size, p, cutout_inside, mask_color=(0, 0, 0)):
         mask_size_half = mask_size // 2
@@ -131,7 +132,7 @@ class CutoutAugmentation:
             else:
                 cxmin, cxmax = 0, w + offset
                 cymin, cymax = 0, h + offset
- 
+
             cx = np.random.randint(cxmin, cxmax)
             cy = np.random.randint(cymin, cymax)
             xmin = cx - mask_size_half
@@ -160,7 +161,7 @@ class officeHourCustomAugmentation:
                 Resize(resize, Image.BILINEAR),
                 ColorJitter(0.1, 0.1, 0.1, 0.1),
                 RandomRotation(30),
-                RandomCrop((64,48)),
+                RandomCrop((64, 48)),
                 RandomVerticalFlip(0.5),
                 ToTensor(),
                 Normalize(mean=mean, std=std),
