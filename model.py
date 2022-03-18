@@ -1,7 +1,9 @@
 import torch
 import torch.nn as nn
+import torchvision.models as models
 import torch.nn.functional as F
-
+from efficientnet_pytorch import EfficientNet
+import timm
 
 class BaseModel(nn.Module):
     def __init__(self, num_classes):
@@ -10,6 +12,7 @@ class BaseModel(nn.Module):
         self.conv1 = nn.Conv2d(3, 32, kernel_size=7, stride=1)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=1)
         self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=1)
+
         self.dropout1 = nn.Dropout(0.25)
         self.dropout2 = nn.Dropout(0.25)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
@@ -51,3 +54,72 @@ class MyModel(nn.Module):
         2. 결과로 나온 output 을 return 해주세요
         """
         return x
+
+
+class Efficient_b0(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.eff_b0 = timm.create_model("tf_efficientnet_b0", pretrained=True)
+        self.eff_b0.classifier = nn.Sequential(
+            nn.Linear(1792, 512),
+            #  nn.Linear(1024, 256),
+            nn.Linear(512, num_classes),
+        )
+
+    def forward(self, x):
+        x = self.eff_b0(x)
+        return x        
+
+class Efficient_b4(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.eff_b4 = timm.create_model("tf_efficientnet_b4", pretrained=True)
+        self.eff_b4.classifier = nn.Sequential(
+            nn.Linear(1792, 512),
+            #  nn.Linear(1024, 256),
+            nn.Linear(512, num_classes),
+        )
+
+    def forward(self, x):
+        x = self.eff_b4(x)
+        return x        
+
+
+class Res18Model(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+        self.res18 = models.resnet18(pretrained=True)
+        self.res18.fc = nn.Sequential(
+            # nn.Linear(2048, 1024),
+            # nn.Linear(1024, 256),
+            nn.Linear(512, num_classes)
+        )
+
+    def forward(self, x):
+        x = self.res18(x)
+        
+        return x
+
+
+# Custom Model Template
+class Vgg19(nn.Module):
+    def __init__(self, num_classes):
+        super().__init__()
+
+        self.model = models.vgg19_bn(pretrained=True)
+        self.model.classifier = nn.Sequential(
+            nn.Linear(512 * 7 * 7, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+            nn.Linear(4096, num_classes),
+        )
+        # print("=" * 100)
+        # print(self.model)
+        # print("=" * 100)
+
+    def forward(self, x):
+        return self.model(x)
+
