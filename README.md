@@ -1,7 +1,7 @@
-# Wrap-Up Report
+# 📁 Wrap-Up Report
 Please check out [here](https://exclusive-orca-ea9.notion.site/6533b2d5b06e453db3847eb76386603a)!
 
-# Getting Started    
+# 🖥 Getting Started    
 ### Dependencies
 - torch==1.6.0
 - torchvision==0.7.0                                                              
@@ -17,25 +17,3 @@ Please check out [here](https://exclusive-orca-ea9.notion.site/6533b2d5b06e453db
 
 ### Evaluation
 - `SM_GROUND_TRUTH_DIR=[GT dir] SM_OUTPUT_DATA_DIR=[inference output dir] python evaluation.py`
-=======
-
-
-
-# Convention
-## Issue Template
-**Title** : [ Head ] contents
-
-**Body**  
-- Experiment  : 
-- Content : 
-
-- Progress
-- [] A
-- [] B
-- [] C
-
-## Issue Comment
-
-**Perforamnce** : { train, test loss and metric }
-
-**Explanation** :
